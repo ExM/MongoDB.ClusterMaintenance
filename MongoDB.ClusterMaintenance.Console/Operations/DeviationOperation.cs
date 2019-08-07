@@ -32,6 +32,17 @@ namespace MongoDB.ClusterMaintenance.Operations
 			var allCollectionNames = await _mongoClient.ListUserCollections(token);
 			_log.Info("Found: {0} collections", allCollectionNames.Count);
 
+			var completed = 0;
+			
+			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken innerToken)
+			{
+				_log.Info("collection: {0}", ns);
+				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+				var collStats = await db.CollStats(ns.CollectionName, 1, innerToken);
+				Interlocked.Increment(ref completed);
+				return collStats;
+			}
+
 			var result = await allCollectionNames.ParallelsAsync(runCollStats, 32, token);
 
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
@@ -63,13 +74,6 @@ namespace MongoDB.ClusterMaintenance.Operations
 				default:
 					throw new ArgumentException($"unexpected report format: {_reportFormat}");
 			}
-		}
-		
-		private async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken token)
-		{
-			_log.Info("collection: {0}", ns);
-			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-			return await db.CollStats(ns.CollectionName, 1, token);
 		}
 	}
 }
