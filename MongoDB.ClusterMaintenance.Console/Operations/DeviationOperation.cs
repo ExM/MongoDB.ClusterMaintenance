@@ -27,24 +27,57 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_reportFormat = reportFormat;
 		}
 
+		private async Task showProgressLoop(Progress progress, CancellationToken token)
+		{
+			while (!token.IsCancellationRequested)
+			{
+				progress.Refresh();
+				_log.Info("# Progress {0}/{1} Elapsed: {2} Left: {3}", progress.Completed, progress.Total, progress.Elapset, progress.Left);
+				await Task.Delay(250);
+			}
+		}
+		
 		public async Task Run(CancellationToken token)
 		{
-			var allCollectionNames = await _mongoClient.ListUserCollections(token);
-			_log.Info("Found: {0} collections", allCollectionNames.Count);
+			_log.Info("Begin operation");
+			var listCollProgress = new Progress();
+			var allCollectionNamesTask = _mongoClient.ListUserCollections(listCollProgress, token);
 
-			var completed = 0;
+			var cts = new CancellationTokenSource();
+
+			var listProgressTask = showProgressLoop(listCollProgress, cts.Token);
+			var allCollectionNames = await allCollectionNamesTask;
+			cts.Cancel();
+			await listProgressTask;
 			
+			_log.Info("Found: {0} collections", allCollectionNames.Count);
+			
+			var statCollProgress = new Progress();
+			statCollProgress.Start(allCollectionNames.Count);
+
 			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken innerToken)
 			{
-				_log.Info("collection: {0}", ns);
-				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-				var collStats = await db.CollStats(ns.CollectionName, 1, innerToken);
-				Interlocked.Increment(ref completed);
-				return collStats;
+				try
+				{
+					_log.Info("collection: {0}", ns);
+					var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+					var collStats = await db.CollStats(ns.CollectionName, 1, innerToken);
+					return collStats;
+				}
+				finally
+				{
+					statCollProgress.Increment();
+				}
 			}
-
-			var result = await allCollectionNames.ParallelsAsync(runCollStats, 32, token);
-
+			
+			var collStatsTask = allCollectionNames.ParallelsAsync(runCollStats, 32, token);
+			var cts2 = new CancellationTokenSource();
+			var statsProgressTask = showProgressLoop(statCollProgress, cts2.Token);
+			
+			var result = await collStatsTask;
+			cts2.Cancel();
+			await statsProgressTask;
+			
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 
 			var report = createReport(sizeRenderer);
