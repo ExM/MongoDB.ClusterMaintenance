@@ -1,4 +1,9 @@
 using System;
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Runtime.Remoting.Messaging;
 using System.Threading;
@@ -32,56 +37,94 @@ namespace MongoDB.ClusterMaintenance.Operations
 			while (!token.IsCancellationRequested)
 			{
 				progress.Refresh();
-				_log.Info("# Progress {0}/{1} Elapsed: {2} Left: {3}", progress.Completed, progress.Total, progress.Elapset, progress.Left);
-				await Task.Delay(250);
+				//_log.Info("# Progress {0}/{1} Elapsed: {2} Left: {3}", progress.Completed, progress.Total, progress.Elapset, progress.Left);
+				
+				Console.WriteLine("# Progress: {0}/{1} Elapsed: {2} Left: {3}", progress.Completed, progress.Total, progress.Elapset, progress.Left);
+				
+				await Task.Delay(100);
 			}
 		}
 		
-		public async Task Run(CancellationToken token)
+		private IList<string> _userDatabases;
+		private IList<CollectionNamespace> _allCollectionNames;
+		private IReadOnlyList<CollStatsResult> _allCollStats;
+
+		private async Task loadUserDatabases(CancellationToken token)
 		{
-			_log.Info("Begin operation");
-			var listCollProgress = new Progress();
-			var allCollectionNamesTask = _mongoClient.ListUserCollections(listCollProgress, token);
-
+			_userDatabases = await _mongoClient.ListUserDatabases(token);
+		}
+		
+		private async Task loadCollections(CancellationToken token)
+		{
+			var progress = new Progress(_userDatabases.Count);
 			var cts = new CancellationTokenSource();
-
-			var listProgressTask = showProgressLoop(listCollProgress, cts.Token);
-			var allCollectionNames = await allCollectionNamesTask;
-			cts.Cancel();
-			await listProgressTask;
 			
-			_log.Info("Found: {0} collections", allCollectionNames.Count);
-			
-			var statCollProgress = new Progress();
-			statCollProgress.Start(allCollectionNames.Count);
+			var progressTask = Task.Factory.StartNew(() => showProgressLoop(progress, cts.Token), TaskCreationOptions.LongRunning);
 
-			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken innerToken)
+			async Task<IEnumerable<CollectionNamespace>> listCollectionNames(string dbName, CancellationToken t)
 			{
 				try
 				{
-					_log.Info("collection: {0}", ns);
+					var db = _mongoClient.GetDatabase(dbName);
+					var collNames = await db.ListCollectionNames().ToListAsync(t);
+					return collNames.Select(_ => new CollectionNamespace(dbName, _));
+				}
+				finally
+				{
+					progress.Increment();
+				}
+			}
+
+			var allCollectionNames = await _userDatabases.ParallelsAsync(listCollectionNames, 32, token);
+
+			cts.Cancel();
+			await progressTask;
+			
+			_allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList();
+		}
+		
+		private async Task loadCollectionStatistics(CancellationToken token)
+		{
+			var progress = new Progress(_allCollectionNames.Count);
+			var cts = new CancellationTokenSource();
+			
+			var progressTask = Task.Factory.StartNew(() => showProgressLoop(progress, cts.Token), TaskCreationOptions.LongRunning);
+
+			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
+			{
+				try
+				{
 					var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-					var collStats = await db.CollStats(ns.CollectionName, 1, innerToken);
+					var collStats = await db.CollStats(ns.CollectionName, 1, t);
 					return collStats;
 				}
 				finally
 				{
-					statCollProgress.Increment();
+					progress.Increment();
 				}
 			}
-			
-			var collStatsTask = allCollectionNames.ParallelsAsync(runCollStats, 32, token);
-			var cts2 = new CancellationTokenSource();
-			var statsProgressTask = showProgressLoop(statCollProgress, cts2.Token);
-			
-			var result = await collStatsTask;
-			cts2.Cancel();
-			await statsProgressTask;
+
+			_allCollStats = await _allCollectionNames.ParallelsAsync(runCollStats, 32, token);
+
+			cts.Cancel();
+			await progressTask;
+		}
+		
+		public async Task Run(CancellationToken token)
+		{
+			var opList = new OperationList()
+			{
+				new SingleOperation2("Load user databases", () => loadUserDatabases(token), () => $"found {_userDatabases.Count} databases."),
+				new SingleOperation2("Load collections", () => loadCollections(token), () => $"found {_allCollectionNames.Count} collections."),
+				new SingleOperation2("Load collection statistics", () => loadCollectionStatistics(token)),
+			};
+
+			await opList.Apply();
 			
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 
 			var report = createReport(sizeRenderer);
-			foreach (var collStats in result)
+			foreach (var collStats in _allCollStats)
 			{
 				report.Append(collStats);
 			}
@@ -107,6 +150,69 @@ namespace MongoDB.ClusterMaintenance.Operations
 				default:
 					throw new ArgumentException($"unexpected report format: {_reportFormat}");
 			}
+		}
+	}
+
+	public interface IOperation2
+	{
+		Task Apply();
+	}
+	
+	public class SingleOperation2: IOperation2
+	{
+		private readonly Func<Task> _action;
+		private readonly Func<string> _doneMessageRenderer;
+		private readonly string _title;
+
+		public SingleOperation2(string title, Func<Task> action, Func<string> doneMessageRenderer = null)
+		{
+			_action = action;
+			_doneMessageRenderer = doneMessageRenderer;
+			_title = title;
+		}
+
+		public virtual async Task Apply()
+		{
+			Console.Write(_title);
+			Console.WriteLine(" ...");
+			await _action();
+
+			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
+			Console.WriteLine(doneMessage);
+		}
+	}
+	
+	public class OperationList: IOperation2, System.Collections.IEnumerable
+	{
+		private readonly string _title;
+		
+		private readonly List<IOperation2> _opList = new List<IOperation2>();
+
+		public OperationList(string title = null)
+		{
+			_title = title;
+		}
+
+		public void Add(IOperation2 operation)
+		{
+			_opList.Add(operation);
+		}
+
+		public async Task Apply()
+		{
+			if(_title != null)
+				Console.WriteLine(_title);
+
+			foreach (var item in _opList.Select((operation, order) => new {operation, order}))
+			{
+				Console.WriteLine("{0}/{1}", item.order + 1, _opList.Count);
+				await item.operation.Apply();
+			}
+		}
+
+		public IEnumerator GetEnumerator()
+		{
+			throw new NotImplementedException();
 		}
 	}
 }

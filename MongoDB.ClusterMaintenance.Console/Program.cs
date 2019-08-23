@@ -179,7 +179,7 @@ namespace MongoDB.ClusterMaintenance
 			var settings = MongoClientSettings.FromUrl(urlBuilder.ToMongoUrl());
 			settings.ClusterConfigurator += CommandLogger.Subscriber;
 			settings.ReadPreference = ReadPreference.Primary;
-
+			settings.MinConnectionPoolSize = 32;
 			return new MongoClient(settings);
 		}
 		
