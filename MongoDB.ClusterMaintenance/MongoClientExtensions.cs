@@ -43,6 +43,18 @@ namespace MongoDB.ClusterMaintenance
 		}
 	}
 
+	public class ObservableWork
+	{
+		public ObservableWork(Progress progress, Task work)
+		{
+			Progress = progress;
+			Work = work;
+		}
+
+		public Task Work { get; } 
+		public Progress Progress { get; }
+	}
+
 	public class Progress
 	{
 		public long Completed { get; private set; } 

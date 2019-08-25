@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using MongoDB.ClusterMaintenance.Config;
 using MongoDB.ClusterMaintenance.MongoCommands;
 using MongoDB.ClusterMaintenance.Reporting;
+using MongoDB.ClusterMaintenance.UI;
 using MongoDB.ClusterMaintenance.Verbs;
 using MongoDB.Driver;
 using NLog;
@@ -31,19 +32,6 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_scaleSuffix = scaleSuffix;
 			_reportFormat = reportFormat;
 		}
-
-		private async Task showProgressLoop(Progress progress, CancellationToken token)
-		{
-			while (!token.IsCancellationRequested)
-			{
-				progress.Refresh();
-				//_log.Info("# Progress {0}/{1} Elapsed: {2} Left: {3}", progress.Completed, progress.Total, progress.Elapset, progress.Left);
-				
-				Console.WriteLine("# Progress: {0}/{1} Elapsed: {2} Left: {3}", progress.Completed, progress.Total, progress.Elapset, progress.Left);
-				
-				await Task.Delay(100);
-			}
-		}
 		
 		private IList<string> _userDatabases;
 		private IList<CollectionNamespace> _allCollectionNames;
@@ -54,12 +42,9 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_userDatabases = await _mongoClient.ListUserDatabases(token);
 		}
 		
-		private async Task loadCollections(CancellationToken token)
+		private ObservableWork loadCollections(CancellationToken token)
 		{
 			var progress = new Progress(_userDatabases.Count);
-			var cts = new CancellationTokenSource();
-			
-			var progressTask = Task.Factory.StartNew(() => showProgressLoop(progress, cts.Token), TaskCreationOptions.LongRunning);
 
 			async Task<IEnumerable<CollectionNamespace>> listCollectionNames(string dbName, CancellationToken t)
 			{
@@ -74,21 +59,19 @@ namespace MongoDB.ClusterMaintenance.Operations
 					progress.Increment();
 				}
 			}
-
-			var allCollectionNames = await _userDatabases.ParallelsAsync(listCollectionNames, 32, token);
-
-			cts.Cancel();
-			await progressTask;
 			
-			_allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList();
+			async Task work()
+			{
+				var allCollectionNames = await _userDatabases.ParallelsAsync(listCollectionNames, 32, token);
+				_allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList();
+			}
+			
+			return new ObservableWork(progress, work());
 		}
 		
-		private async Task loadCollectionStatistics(CancellationToken token)
+		private ObservableWork loadCollectionStatistics(CancellationToken token)
 		{
 			var progress = new Progress(_allCollectionNames.Count);
-			var cts = new CancellationTokenSource();
-			
-			var progressTask = Task.Factory.StartNew(() => showProgressLoop(progress, cts.Token), TaskCreationOptions.LongRunning);
 
 			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
 			{
@@ -103,23 +86,25 @@ namespace MongoDB.ClusterMaintenance.Operations
 					progress.Increment();
 				}
 			}
+			
+			async Task work()
+			{
+				_allCollStats = await _allCollectionNames.ParallelsAsync(runCollStats, 32, token);
+			}
 
-			_allCollStats = await _allCollectionNames.ParallelsAsync(runCollStats, 32, token);
-
-			cts.Cancel();
-			await progressTask;
+			return new ObservableWork(progress, work());
 		}
 		
 		public async Task Run(CancellationToken token)
 		{
 			var opList = new OperationList()
 			{
-				new SingleOperation2("Load user databases", () => loadUserDatabases(token), () => $"found {_userDatabases.Count} databases."),
-				new SingleOperation2("Load collections", () => loadCollections(token), () => $"found {_allCollectionNames.Count} collections."),
-				new SingleOperation2("Load collection statistics", () => loadCollectionStatistics(token)),
+				new SingleOperation2("Load user databases", loadUserDatabases, () => $"found {_userDatabases.Count} databases."),
+				new ObservableOperation2("Load collections", loadCollections, () => $"found {_allCollectionNames.Count} collections."),
+				new ObservableOperation2("Load collection statistics", loadCollectionStatistics),
 			};
 
-			await opList.Apply();
+			await opList.Apply("", token);
 			
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 
@@ -155,30 +140,101 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 	public interface IOperation2
 	{
-		Task Apply();
+		Task Apply(string prefix, CancellationToken token);
 	}
 	
 	public class SingleOperation2: IOperation2
 	{
-		private readonly Func<Task> _action;
+		private readonly Func<CancellationToken, Task> _action;
 		private readonly Func<string> _doneMessageRenderer;
 		private readonly string _title;
 
-		public SingleOperation2(string title, Func<Task> action, Func<string> doneMessageRenderer = null)
+		public SingleOperation2(string title, Func<CancellationToken, Task> action, Func<string> doneMessageRenderer = null)
 		{
 			_action = action;
 			_doneMessageRenderer = doneMessageRenderer;
 			_title = title;
 		}
 
-		public virtual async Task Apply()
+		public virtual async Task Apply(string prefix, CancellationToken token)
 		{
+			Console.Write(prefix);
 			Console.Write(_title);
-			Console.WriteLine(" ...");
-			await _action();
+			Console.Write(" ... ");
+			await _action(token);
 
 			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
 			Console.WriteLine(doneMessage);
+		}
+	}
+	
+	public class ObservableOperation2: IOperation2
+	{
+		private readonly Func<CancellationToken, ObservableWork> _action;
+		private readonly Func<string> _doneMessageRenderer;
+		private readonly string _title;
+
+		public ObservableOperation2(string title, Func<CancellationToken, ObservableWork> action, Func<string> doneMessageRenderer = null)
+		{
+			_action = action;
+			_doneMessageRenderer = doneMessageRenderer;
+			_title = title;
+		}
+
+		public virtual async Task Apply(string prefix, CancellationToken token)
+		{
+			Console.Write(prefix);
+			Console.Write(_title);
+			Console.Write(" ... ");
+			var work = _action(token);
+
+			var progress = work.Progress;
+
+			var frame = new ConsoleFrame(builder =>
+			{
+				progress.Refresh();
+				builder.AppendLine("");
+				builder.AppendLine(
+					$"# Progress: {progress.Completed}/{progress.Total} Elapsed: {progress.Elapset} Left: {progress.Left}");
+			});
+
+			var cts = new CancellationTokenSource();
+
+			var cancelProgressLoop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, token).Token;
+			
+			var progressTask = Task.Factory.StartNew(() => showProgressLoop(frame, cancelProgressLoop), TaskCreationOptions.LongRunning);
+
+			try
+			{
+				await work.Work;
+			}
+			finally
+			{
+				cts.Cancel();
+				await progressTask;
+			}
+
+			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
+			Console.WriteLine(doneMessage);
+		}
+		
+		private async Task showProgressLoop(ConsoleFrame frame, CancellationToken token)
+		{
+			while (!token.IsCancellationRequested)
+			{
+				frame.Refresh();
+
+				try
+				{
+					await Task.Delay(100, token);
+				}
+				catch (TaskCanceledException)
+				{
+					break;
+				}
+			}
+			
+			frame.Clear();
 		}
 	}
 	
@@ -198,15 +254,14 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_opList.Add(operation);
 		}
 
-		public async Task Apply()
+		public async Task Apply(string prefix, CancellationToken token)
 		{
-			if(_title != null)
-				Console.WriteLine(_title);
+			Console.Write(prefix);
+			Console.WriteLine(_title ?? "");
 
 			foreach (var item in _opList.Select((operation, order) => new {operation, order}))
 			{
-				Console.WriteLine("{0}/{1}", item.order + 1, _opList.Count);
-				await item.operation.Apply();
+				await item.operation.Apply($"{item.order + 1}/{_opList.Count} ", token);
 			}
 		}
 
