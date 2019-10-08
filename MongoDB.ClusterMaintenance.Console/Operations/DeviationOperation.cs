@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -11,8 +10,8 @@ using System.Threading.Tasks;
 using MongoDB.ClusterMaintenance.Config;
 using MongoDB.ClusterMaintenance.MongoCommands;
 using MongoDB.ClusterMaintenance.Reporting;
-using MongoDB.ClusterMaintenance.UI;
 using MongoDB.ClusterMaintenance.Verbs;
+using MongoDB.ClusterMaintenance.WorkFlow;
 using MongoDB.Driver;
 using NLog;
 
@@ -42,7 +41,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_userDatabases = await _mongoClient.ListUserDatabases(token);
 		}
 		
-		private ObservableWork loadCollections(CancellationToken token)
+		private ObservableTask loadCollections(CancellationToken token)
 		{
 			var progress = new Progress(_userDatabases.Count);
 
@@ -66,10 +65,10 @@ namespace MongoDB.ClusterMaintenance.Operations
 				_allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList();
 			}
 			
-			return new ObservableWork(progress, work());
+			return new ObservableTask(progress, work());
 		}
 		
-		private ObservableWork loadCollectionStatistics(CancellationToken token)
+		private ObservableTask loadCollectionStatistics(CancellationToken token)
 		{
 			var progress = new Progress(_allCollectionNames.Count);
 
@@ -92,16 +91,16 @@ namespace MongoDB.ClusterMaintenance.Operations
 				_allCollStats = await _allCollectionNames.ParallelsAsync(runCollStats, 32, token);
 			}
 
-			return new ObservableWork(progress, work());
+			return new ObservableTask(progress, work());
 		}
 		
 		public async Task Run(CancellationToken token)
 		{
 			var opList = new OperationList()
 			{
-				new SingleOperation2("Load user databases", loadUserDatabases, () => $"found {_userDatabases.Count} databases."),
-				new ObservableOperation2("Load collections", loadCollections, () => $"found {_allCollectionNames.Count} collections."),
-				new ObservableOperation2("Load collection statistics", loadCollectionStatistics),
+				new SingleWork("Load user databases", loadUserDatabases, () => $"found {_userDatabases.Count} databases."),
+				new ObservableWork("Load collections", loadCollections, () => $"found {_allCollectionNames.Count} collections."),
+				new ObservableWork("Load collection statistics", loadCollectionStatistics),
 			};
 
 			await opList.Apply("", token);
@@ -135,139 +134,6 @@ namespace MongoDB.ClusterMaintenance.Operations
 				default:
 					throw new ArgumentException($"unexpected report format: {_reportFormat}");
 			}
-		}
-	}
-
-	public interface IOperation2
-	{
-		Task Apply(string prefix, CancellationToken token);
-	}
-	
-	public class SingleOperation2: IOperation2
-	{
-		private readonly Func<CancellationToken, Task> _action;
-		private readonly Func<string> _doneMessageRenderer;
-		private readonly string _title;
-
-		public SingleOperation2(string title, Func<CancellationToken, Task> action, Func<string> doneMessageRenderer = null)
-		{
-			_action = action;
-			_doneMessageRenderer = doneMessageRenderer;
-			_title = title;
-		}
-
-		public virtual async Task Apply(string prefix, CancellationToken token)
-		{
-			Console.Write(prefix);
-			Console.Write(_title);
-			Console.Write(" ... ");
-			await _action(token);
-
-			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
-			Console.WriteLine(doneMessage);
-		}
-	}
-	
-	public class ObservableOperation2: IOperation2
-	{
-		private readonly Func<CancellationToken, ObservableWork> _action;
-		private readonly Func<string> _doneMessageRenderer;
-		private readonly string _title;
-
-		public ObservableOperation2(string title, Func<CancellationToken, ObservableWork> action, Func<string> doneMessageRenderer = null)
-		{
-			_action = action;
-			_doneMessageRenderer = doneMessageRenderer;
-			_title = title;
-		}
-
-		public virtual async Task Apply(string prefix, CancellationToken token)
-		{
-			Console.Write(prefix);
-			Console.Write(_title);
-			Console.Write(" ... ");
-			var work = _action(token);
-
-			var progress = work.Progress;
-
-			var frame = new ConsoleFrame(builder =>
-			{
-				progress.Refresh();
-				builder.AppendLine("");
-				builder.AppendLine(
-					$"# Progress: {progress.Completed}/{progress.Total} Elapsed: {progress.Elapset} Left: {progress.Left}");
-			});
-
-			var cts = new CancellationTokenSource();
-
-			var cancelProgressLoop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, token).Token;
-			
-			var progressTask = Task.Factory.StartNew(() => showProgressLoop(frame, cancelProgressLoop), TaskCreationOptions.LongRunning);
-
-			try
-			{
-				await work.Work;
-			}
-			finally
-			{
-				cts.Cancel();
-				await progressTask;
-			}
-
-			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
-			Console.WriteLine(doneMessage);
-		}
-		
-		private async Task showProgressLoop(ConsoleFrame frame, CancellationToken token)
-		{
-			while (!token.IsCancellationRequested)
-			{
-				frame.Refresh();
-
-				try
-				{
-					await Task.Delay(100, token);
-				}
-				catch (TaskCanceledException)
-				{
-					break;
-				}
-			}
-			
-			frame.Clear();
-		}
-	}
-	
-	public class OperationList: IOperation2, System.Collections.IEnumerable
-	{
-		private readonly string _title;
-		
-		private readonly List<IOperation2> _opList = new List<IOperation2>();
-
-		public OperationList(string title = null)
-		{
-			_title = title;
-		}
-
-		public void Add(IOperation2 operation)
-		{
-			_opList.Add(operation);
-		}
-
-		public async Task Apply(string prefix, CancellationToken token)
-		{
-			Console.Write(prefix);
-			Console.WriteLine(_title ?? "");
-
-			foreach (var item in _opList.Select((operation, order) => new {operation, order}))
-			{
-				await item.operation.Apply($"{item.order + 1}/{_opList.Count} ", token);
-			}
-		}
-
-		public IEnumerator GetEnumerator()
-		{
-			throw new NotImplementedException();
 		}
 	}
 }
