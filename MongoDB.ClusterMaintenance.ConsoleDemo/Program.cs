@@ -1,7 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MongoDB.ClusterMaintenance.MongoCommands;
 using MongoDB.ClusterMaintenance.UI;
+using MongoDB.ClusterMaintenance.WorkFlow;
 
 namespace MongoDB.ClusterMaintenance.ConsoleDemo
 {
@@ -19,7 +23,28 @@ namespace MongoDB.ClusterMaintenance.ConsoleDemo
 			};
 			try
 			{
-				doWork(cts.Token).Wait(cts.Token);
+				var opList = new OperationList("Base list operation")
+				{
+					new SingleWork("Single work 1", singleWork, () => $"Finished."),
+					new ObservableWork("Observable work 1", observableWork, () => $"Finished."),
+					new OperationList("Inner list L2")
+					{
+						new ObservableWork("Observable work 2.1", observableWork),
+						
+						new OperationList("Inner list L3")
+						{
+							new ObservableWork("Observable work 3.1", observableWork),
+							new ObservableWork("Observable work 3.2", observableWork),
+							new ObservableWork("Observable work 3.3", observableWork),
+							new ObservableWork("Observable work 3.4", observableWork),
+							new ObservableWork("Observable work 3.5", observableWork),
+						},
+						new ObservableWork("Observable work 2.2", observableWork),
+					},
+					new ObservableWork("Observable work 2", observableWork),
+				};
+
+				opList.Apply(0, "", cts.Token).Wait(cts.Token);
 			}
 			catch (OperationCanceledException)
 			{
@@ -34,24 +59,38 @@ namespace MongoDB.ClusterMaintenance.ConsoleDemo
 			return 0;
 		}
 
-		private static async Task doWork(CancellationToken token)
+		private static async Task singleWork(CancellationToken token)
 		{
-			Console.Write(">>>");
-			int round = 0;
-
-			var cf = new ConsoleFrame(b =>
-			{
-				b.AppendLine((500 - round).ToString());
-				b.AppendLine(round.ToString());
-			});
+			await Task.Delay(TimeSpan.FromSeconds(2), token);
+		}
 		
-			while (!token.IsCancellationRequested)
+		private static ObservableTask observableWork(CancellationToken token)
+		{
+			var innerTasks = Enumerable.Range(0, 1000).ToList();
+			
+			var rnd = new Random();
+			
+			var progress = new Progress(innerTasks.Count);
+
+			async Task<int> listCollectionNames(int input, CancellationToken t)
 			{
-				await Task.Delay(1000, token);
-				round++;
-				
-				cf.Refresh();
+				try
+				{
+					await Task.Delay(TimeSpan.FromMilliseconds(rnd.Next(5, 100)), t);
+					return 0;
+				}
+				finally
+				{
+					progress.Increment();
+				}
 			}
+			
+			async Task work()
+			{
+				await innerTasks.ParallelsAsync(listCollectionNames, 10, token);
+			}
+			
+			return new ObservableTask(progress, work());
 		}
 	}
 }

@@ -103,7 +103,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				new ObservableWork("Load collection statistics", loadCollectionStatistics),
 			};
 
-			await opList.Apply("", token);
+			await opList.Apply(0, "Calculation of collection size deviation", token);
 			
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 

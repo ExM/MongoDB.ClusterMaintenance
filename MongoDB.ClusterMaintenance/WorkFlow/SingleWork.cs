@@ -17,8 +17,9 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			_title = title;
 		}
 
-		public virtual async Task Apply(string prefix, CancellationToken token)
+		public virtual async Task Apply(int indent, string prefix, CancellationToken token)
 		{
+			Console.Write(indent.ToIndent());
 			Console.Write(prefix);
 			Console.Write(_title);
 			Console.Write(" ... ");

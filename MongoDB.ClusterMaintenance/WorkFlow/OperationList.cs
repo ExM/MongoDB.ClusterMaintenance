@@ -23,14 +23,15 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			_opList.Add(operation);
 		}
 
-		public async Task Apply(string prefix, CancellationToken token)
+		public async Task Apply(int indent, string prefix, CancellationToken token)
 		{
+			Console.Write(indent.ToIndent());
 			Console.Write(prefix);
 			Console.WriteLine(_title ?? "");
 
 			foreach (var item in _opList.Select((operation, order) => new {operation, order}))
 			{
-				await item.operation.Apply($"{item.order + 1}/{_opList.Count} ", token);
+				await item.operation.Apply(indent + 1, $"{item.order + 1}/{_opList.Count} ", token);
 			}
 		}
 

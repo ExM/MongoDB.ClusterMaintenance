@@ -18,8 +18,9 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			_title = title;
 		}
 
-		public virtual async Task Apply(string prefix, CancellationToken token)
+		public virtual async Task Apply(int indent, string prefix, CancellationToken token)
 		{
+			Console.Write(indent.ToIndent());
 			Console.Write(prefix);
 			Console.Write(_title);
 			Console.Write(" ... ");
@@ -49,6 +50,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			{
 				cts.Cancel();
 				await progressTask;
+				frame.Clear();
 			}
 
 			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
@@ -63,15 +65,13 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 
 				try
 				{
-					await Task.Delay(100, token);
+					await Task.Delay(250, token);
 				}
 				catch (TaskCanceledException)
 				{
-					break;
+					return;
 				}
 			}
-			
-			frame.Clear();
 		}
 	}
 }

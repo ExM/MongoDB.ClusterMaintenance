@@ -5,6 +5,6 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 {
 	public interface IWork
 	{
-		Task Apply(string prefix, CancellationToken token);
+		Task Apply(int indent, string prefix, CancellationToken token);
 	}
 }

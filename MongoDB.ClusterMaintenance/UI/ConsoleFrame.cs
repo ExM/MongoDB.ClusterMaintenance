@@ -12,6 +12,8 @@ namespace MongoDB.ClusterMaintenance.UI
 		
 		private readonly List<int> _renderedLines = new List<int>();
 		
+		private readonly object _sync = new object();
+		
 		public ConsoleFrame(Action<IFrameBuilder> frameRenderer)
 		{
 			_frameRenderer = frameRenderer;
@@ -20,6 +22,12 @@ namespace MongoDB.ClusterMaintenance.UI
 		}
 
 		public void Clear()
+		{
+			lock (_sync)
+				innerClear();
+		}
+
+		private void innerClear()
 		{
 			Console.SetCursorPosition(_startLeft, _startTop);
 
@@ -32,17 +40,19 @@ namespace MongoDB.ClusterMaintenance.UI
 				Console.WriteLine();
 				Console.Write(new string(' ', lineLength));
 			}
-			
+
 			_renderedLines.Clear();
-			
+
 			Console.SetCursorPosition(_startLeft, _startTop);
 		}
-		
+
 		public void Refresh()
 		{
-			Clear();
-			_frameRenderer(this);
-			
+			lock (_sync)
+			{
+				innerClear();
+				_frameRenderer(this);
+			}
 		}
 
 		void IFrameBuilder.AppendLine(string text)
