@@ -42,7 +42,7 @@ namespace MongoDB.ClusterMaintenance.ConsoleDemo
 					{"Observable work 2", new ObservableWork(observableWork)},
 				};
 
-				opList.Apply("", cts.Token).Wait(cts.Token);
+				opList.Apply(cts.Token).Wait(cts.Token);
 			}
 			catch (OperationCanceledException)
 			{

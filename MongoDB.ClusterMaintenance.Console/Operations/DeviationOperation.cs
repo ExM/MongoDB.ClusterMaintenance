@@ -43,29 +43,19 @@ namespace MongoDB.ClusterMaintenance.Operations
 		
 		private ObservableTask loadCollections(CancellationToken token)
 		{
-			var progress = new Progress(_userDatabases.Count);
-
 			async Task<IEnumerable<CollectionNamespace>> listCollectionNames(string dbName, CancellationToken t)
 			{
-				try
-				{
-					var db = _mongoClient.GetDatabase(dbName);
-					var collNames = await db.ListCollectionNames().ToListAsync(t);
-					return collNames.Select(_ => new CollectionNamespace(dbName, _));
-				}
-				finally
-				{
-					progress.Increment();
-				}
+				var db = _mongoClient.GetDatabase(dbName);
+				var collNames = await db.ListCollectionNames().ToListAsync(t);
+				return collNames.Select(_ => new CollectionNamespace(dbName, _));
 			}
 			
-			async Task work()
-			{
-				var allCollectionNames = await _userDatabases.ParallelsAsync(listCollectionNames, 32, token);
-				_allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList();
-			}
-			
-			return new ObservableTask(progress, work());
+			return ObservableTask.WithParallels(
+				_userDatabases, 
+				32, 
+				listCollectionNames,
+				allCollectionNames => { _allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList(); },
+				token);
 		}
 		
 		private ObservableTask loadCollectionStatistics(CancellationToken token)
@@ -103,7 +93,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
 			};
 
-			await opList.Apply("", token);
+			await opList.Apply(token);
 			
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 

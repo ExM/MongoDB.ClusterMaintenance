@@ -31,7 +31,12 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			});
 		}
 
-		public async Task Apply(string prefix, CancellationToken token)
+		public Task Apply(CancellationToken token)
+		{
+			return apply(string.Empty, token);
+		}
+
+		private async Task apply(string prefix, CancellationToken token)
 		{
 			var itemPrefix = prefix + "- ";
 			
@@ -42,7 +47,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 				{
 					case WorkList innerList:
 						Console.WriteLine();
-						await innerList.Apply(itemPrefix, token);
+						await innerList.apply(itemPrefix, token);
 						break;
 					
 					case IWork work:
