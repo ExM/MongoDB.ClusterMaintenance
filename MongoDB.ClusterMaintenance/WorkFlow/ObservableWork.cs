@@ -9,21 +9,15 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 	{
 		private readonly Func<CancellationToken, ObservableTask> _action;
 		private readonly Func<string> _doneMessageRenderer;
-		private readonly string _title;
 
-		public ObservableWork(string title, Func<CancellationToken, ObservableTask> action, Func<string> doneMessageRenderer = null)
+		public ObservableWork(Func<CancellationToken, ObservableTask> action, Func<string> doneMessageRenderer = null)
 		{
 			_action = action;
 			_doneMessageRenderer = doneMessageRenderer;
-			_title = title;
 		}
 
-		public virtual async Task Apply(int indent, string prefix, CancellationToken token)
+		public virtual async Task Apply(CancellationToken token)
 		{
-			Console.Write(indent.ToIndent());
-			Console.Write(prefix);
-			Console.Write(_title);
-			Console.Write(" ... ");
 			var work = _action(token);
 
 			var progress = work.Progress;
@@ -44,7 +38,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 
 			try
 			{
-				await work.Work;
+				await work.Task;
 			}
 			finally
 			{
@@ -53,8 +47,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 				frame.Clear();
 			}
 
-			var doneMessage = _doneMessageRenderer == null ? "done" : _doneMessageRenderer();
-			Console.WriteLine(doneMessage);
+			Console.WriteLine(_doneMessageRenderer == null ? "done" : _doneMessageRenderer());
 		}
 		
 		private async Task showProgressLoop(ConsoleFrame frame, CancellationToken token)

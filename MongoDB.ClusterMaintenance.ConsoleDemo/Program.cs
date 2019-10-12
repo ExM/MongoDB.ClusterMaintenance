@@ -23,28 +23,26 @@ namespace MongoDB.ClusterMaintenance.ConsoleDemo
 			};
 			try
 			{
-				var opList = new OperationList("Base list operation")
+				var opList = new WorkList()
 				{
-					new SingleWork("Single work 1", singleWork, () => $"Finished."),
-					new ObservableWork("Observable work 1", observableWork, () => $"Finished."),
-					new OperationList("Inner list L2")
-					{
-						new ObservableWork("Observable work 2.1", observableWork),
-						
-						new OperationList("Inner list L3")
+					{"Single work 1", new SingleWork(singleWork, () => $"Finished.")},
+					{"Observable work 1", new ObservableWork(observableWork, () => $"Finished.")},
+					{"Inner list L2", new WorkList() {
+						{"Observable work 2.1", new ObservableWork(observableWork)},
+						{"Inner list L3", new WorkList()
 						{
-							new ObservableWork("Observable work 3.1", observableWork),
-							new ObservableWork("Observable work 3.2", observableWork),
-							new ObservableWork("Observable work 3.3", observableWork),
-							new ObservableWork("Observable work 3.4", observableWork),
-							new ObservableWork("Observable work 3.5", observableWork),
-						},
-						new ObservableWork("Observable work 2.2", observableWork),
-					},
-					new ObservableWork("Observable work 2", observableWork),
+							{ "Observable work 3.1", new ObservableWork(observableWork)},
+							{ "Observable work 3.2", new ObservableWork(observableWork)},
+							{ "Observable work 3.3", new ObservableWork(observableWork)},
+							{ "Observable work 3.4", new ObservableWork(observableWork)},
+							{ "Observable work 3.5", new ObservableWork(observableWork)},
+						}},
+						{"Observable work 2.2", new ObservableWork(observableWork)},
+					}},
+					{"Observable work 2", new ObservableWork(observableWork)},
 				};
 
-				opList.Apply(0, "", cts.Token).Wait(cts.Token);
+				opList.Apply("", cts.Token).Wait(cts.Token);
 			}
 			catch (OperationCanceledException)
 			{

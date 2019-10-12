@@ -4,13 +4,13 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 {
 	public class ObservableTask
 	{
-		public ObservableTask(Progress progress, Task work)
+		public ObservableTask(Progress progress, Task task)
 		{
 			Progress = progress;
-			Work = work;
+			Task = task;
 		}
 
-		public Task Work { get; } 
+		public Task Task { get; } 
 		public Progress Progress { get; }
 	}
 }

@@ -96,14 +96,14 @@ namespace MongoDB.ClusterMaintenance.Operations
 		
 		public async Task Run(CancellationToken token)
 		{
-			var opList = new OperationList()
+			var opList = new WorkList()
 			{
-				new SingleWork("Load user databases", loadUserDatabases, () => $"found {_userDatabases.Count} databases."),
-				new ObservableWork("Load collections", loadCollections, () => $"found {_allCollectionNames.Count} collections."),
-				new ObservableWork("Load collection statistics", loadCollectionStatistics),
+				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
+				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
+				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
 			};
 
-			await opList.Apply(0, "Calculation of collection size deviation", token);
+			await opList.Apply("", token);
 			
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 
