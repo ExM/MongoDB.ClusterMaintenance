@@ -60,28 +60,19 @@ namespace MongoDB.ClusterMaintenance.Operations
 		
 		private ObservableTask loadCollectionStatistics(CancellationToken token)
 		{
-			var progress = new Progress(_allCollectionNames.Count);
-
 			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
 			{
-				try
-				{
-					var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-					var collStats = await db.CollStats(ns.CollectionName, 1, t);
-					return collStats;
-				}
-				finally
-				{
-					progress.Increment();
-				}
-			}
-			
-			async Task work()
-			{
-				_allCollStats = await _allCollectionNames.ParallelsAsync(runCollStats, 32, token);
+				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+				var collStats = await db.CollStats(ns.CollectionName, 1, t);
+				return collStats;
 			}
 
-			return new ObservableTask(progress, work());
+			return ObservableTask.WithParallels(
+				_allCollectionNames, 
+				32, 
+				runCollStats,
+				allCollStats => { _allCollStats = allCollStats; },
+				token);
 		}
 		
 		public async Task Run(CancellationToken token)
