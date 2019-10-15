@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -20,6 +21,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		
 		private IReadOnlyCollection<Shard> _shards;
 		private int _totalUnMovedChunks = 0;
+		private ConcurrentBag<UnMovedChunk> _unMovedChunks = new ConcurrentBag<UnMovedChunk>();
 
 		public BalancerStateOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals)
 		{
@@ -50,15 +52,15 @@ namespace MongoDB.ClusterMaintenance.Operations
 				var unMovedChunks = chunks.Where(_ => _.Jumbo != true && !validShards.Contains(_.Shard)).ToList();
 				if (unMovedChunks.Count != 0)
 				{
-					var sourceShards = unMovedChunks.Select(_ => _.Shard).Distinct().Select(_ => $"'{_}'");
-					_log.Info("  tag range '{0}' wait {1} chunks from {2} shards",
-						tagRange.Tag, unMovedChunks.Count, string.Join(", ", sourceShards));
-					if (unMovedChunks.Count <= 5)
+					_unMovedChunks.Add(new UnMovedChunk()
 					{
-						_log.Info("  chunksIds: {0}",
-							string.Join(", ", unMovedChunks.Select(_ => _.Id)));
-					}
-
+						Namespace = interval.Namespace,
+						TagRange = tagRange.Tag,
+						Count = unMovedChunks.Count,
+						SourceShards = unMovedChunks.Select(_ => _.Shard).Distinct().Select(_ => $"'{_}'").ToList(),
+						SampleIds = unMovedChunks.Select(_ => _.Id).Take(5).ToList()
+					});
+					
 					intervalCount += unMovedChunks.Count;
 				}
 			}
@@ -87,6 +89,27 @@ namespace MongoDB.ClusterMaintenance.Operations
 			};
 
 			await opList.Apply(token);
+
+			foreach (var unMovedChunkGroup in _unMovedChunks.GroupBy(_ => _.Namespace))
+			{
+				Console.WriteLine("{0}:", unMovedChunkGroup.Key);
+				foreach (var  unMovedChunk in unMovedChunkGroup)
+				{
+					Console.WriteLine("  tag range '{0}' wait {1} chunks from {2} shards",
+						unMovedChunk.TagRange, unMovedChunk.Count, string.Join(", ", unMovedChunk.SourceShards));
+					if (unMovedChunk.Count <= 5)
+						Console.WriteLine("  chunksIds: {0}", string.Join(", ", unMovedChunk.SampleIds));
+				}
+			}
+		}
+
+		private class UnMovedChunk
+		{
+			public CollectionNamespace Namespace { get; set; }
+			public TagIdentity TagRange { get; set; }
+			public int Count { get; set; }
+			public List<string> SourceShards { get; set; }
+			public List<string> SampleIds { get; set; }
 		}
 	}
 }
