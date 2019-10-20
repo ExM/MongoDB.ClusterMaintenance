@@ -44,6 +44,8 @@ namespace MongoDB.ClusterMaintenance.Operations
 		private Dictionary<CollectionNamespace, CollStatsResult> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
 		private int _totalChunks = 0;
+		private ZoneOptimizationDescriptor _zoneOpt;
+		private Dictionary<TagIdentity, Shard> _shardByTag;
 
 		private async Task getChunkSize(CancellationToken token)
 		{
@@ -53,6 +55,11 @@ namespace MongoDB.ClusterMaintenance.Operations
 		private async Task loadShards(CancellationToken token)
 		{
 			_shards = await _configDb.Shards.GetAll();
+			
+			_shardByTag =  _intervals
+				.SelectMany(_ => _.Zones)
+				.Distinct()
+				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 		}
 
 		private async Task loadUserDatabases(CancellationToken token)
@@ -119,58 +126,41 @@ namespace MongoDB.ClusterMaintenance.Operations
 				token);
 		}
 		
-		public async Task Run(CancellationToken token)
+		private void createZoneOptimizationDescriptor(CancellationToken token)
 		{
-			var opList = new WorkList()
-			{
-				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
-				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
-				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
-				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
-				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
-				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
-			};
-
-			await opList.Apply(token);
-
 			var unShardedSizeMap = _collStatsMap.Values
 				.Where(_ => !_.Sharded)
 				.GroupBy(_ => _.Primary)
 				.ToDictionary(k => k.Key, g => g.Sum(_ => _.Size));
-
-			var shardByTag =  _intervals
-				.SelectMany(_ => _.Zones)
-				.Distinct()
-				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 			
-			var zoneOpt = new ZoneOptimizationDescriptor(
+			_zoneOpt = new ZoneOptimizationDescriptor(
 				_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_=> _.Namespace),
 				_shards.Select(_ => _.Id));
 
 			foreach (var p in unShardedSizeMap)
-				zoneOpt.UnShardedSize[p.Key] = p.Value;
+				_zoneOpt.UnShardedSize[p.Key] = p.Value;
 
-			foreach (var coll in zoneOpt.Collections)
+			foreach (var coll in _zoneOpt.Collections)
 			{
 				if(!_collStatsMap[coll].Sharded)
 					continue;
 
 				foreach (var s in _collStatsMap[coll].Shards)
-					zoneOpt[coll, s.Key].CurrentSize = s.Value.Size;
+					_zoneOpt[coll, s.Key].CurrentSize = s.Value.Size;
 			}
 
 			foreach (var interval in _intervals.Where(_ => _.Correction != CorrectionMode.None))
 			{
-				var collCfg = zoneOpt.CollectionSettings[interval.Namespace];
+				var collCfg = _zoneOpt.CollectionSettings[interval.Namespace];
 				collCfg.UnShardCompensation = interval.Correction == CorrectionMode.UnShard;
 				collCfg.Priority = interval.Priority;
 				
 				var allChunks = _chunksByCollection[interval.Namespace];
 				foreach (var tag in interval.Zones)
 				{
-					var shard = shardByTag[tag].Id;
+					var shard = _shardByTag[tag].Id;
 
-					var bucket = zoneOpt[interval.Namespace, shard];
+					var bucket = _zoneOpt[interval.Namespace, shard];
 					
 					bucket.Managed = true;
 
@@ -184,8 +174,24 @@ namespace MongoDB.ClusterMaintenance.Operations
 						bucket.MinSize = bucket.CurrentSize - _chunkSize * (movedChunks - 1);
 				}
 			}
+		}
+		
+		public async Task Run(CancellationToken token)
+		{
+			var opList = new WorkList()
+			{
+				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
+				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
+				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
+				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
+				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
+				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
+				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
+			};
 
-			var solve = ZoneOptimizationSolve.Find(zoneOpt, token);
+			await opList.Apply(token);
+
+			var solve = ZoneOptimizationSolve.Find(_zoneOpt, token);
 
 			if(!solve.IsSuccess)
 				throw new Exception("solution for zone optimization not found");
@@ -204,14 +210,14 @@ namespace MongoDB.ClusterMaintenance.Operations
 				{
 					foreach (var tag in interval.Zones)
 					{
-						var shId = shardByTag[tag].Id;
+						var shId = _shardByTag[tag].Id;
 						targetSize[tag] = solve[interval.Namespace, shId].TargetSize;
 					}
 				}
 				else
 				{
 					var collStat = _collStatsMap[interval.Namespace];
-					var managedCollSize = interval.Zones.Sum(tag => collStat.Shards[shardByTag[tag].Id].Size);
+					var managedCollSize = interval.Zones.Sum(tag => collStat.Shards[_shardByTag[tag].Id].Size);
 					var avgZoneSize = managedCollSize / interval.Zones.Count;
 
 					foreach (var tag in interval.Zones)

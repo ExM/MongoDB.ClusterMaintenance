@@ -11,6 +11,16 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 	{
 		private readonly List<OpItem> _opList = new List<OpItem>();
 		
+		public void Add(string title, Action<CancellationToken> work)
+		{
+			_opList.Add(new OpItem()
+			{
+				Order = _opList.Count + 1,
+				Title = title,
+				Work = work
+			});
+		}
+		
 		public void Add(string title, IWork work)
 		{
 			_opList.Add(new OpItem()
@@ -53,6 +63,12 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 					case IWork work:
 						Console.Write(" ... ");
 						await work.Apply(token);
+						break;
+					
+					case Action<CancellationToken> action:
+						Console.Write(" ... ");
+						action(token);
+						Console.WriteLine("done");
 						break;
 				}
 			}
