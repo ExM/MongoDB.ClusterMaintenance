@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using MongoDB.Bson;
 using MongoDB.ClusterMaintenance.Models;
@@ -65,6 +66,16 @@ namespace MongoDB.ClusterMaintenance
 					return this;
 
 				return new Filtered(_coll, _filter & Builders<Chunk>.Filter.Lt(_ => _.Min, to));
+			}
+			
+			public Filtered NoJumbo()
+			{
+				return new Filtered(_coll, _filter & Builders<Chunk>.Filter.Where(_ => _.Jumbo != true));
+			}
+			
+			public Filtered ExcludeShards(IEnumerable<ShardIdentity> shards)
+			{
+				return new Filtered(_coll, _filter & Builders<Chunk>.Filter.Nin(_ => _.Shard, shards));
 			}
 		}
 	}

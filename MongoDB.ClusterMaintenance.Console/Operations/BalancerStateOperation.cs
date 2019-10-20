@@ -44,27 +44,25 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			foreach (var tagRange in tagRanges)
 			{
-				var validShards = new HashSet<ShardIdentity>(_shards.Where(_ => _.Tags.Contains(tagRange.Tag)).Select(_ => _.Id));
-					
-				var chunks = await (await _configDb.Chunks.ByNamespace(interval.Namespace)
-					.From(tagRange.Min).To(tagRange.Max).Find()).ToListAsync(token);
+				var validShards = _shards.Where(_ => _.Tags.Contains(tagRange.Tag)).Select(_ => _.Id).ToList();
 
-				var unMovedChunks = chunks.Where(_ => _.Jumbo != true && !validShards.Contains(_.Shard)).ToList();
-				if (unMovedChunks.Count != 0)
+				var unMovedChunks = await (await _configDb.Chunks.ByNamespace(interval.Namespace)
+						.From(tagRange.Min).To(tagRange.Max).NoJumbo().ExcludeShards(validShards).Find())
+					.ToListAsync(token);
+
+				if (unMovedChunks.Count == 0) continue;
+
+				_unMovedChunks.Add(new UnMovedChunk()
 				{
-					_unMovedChunks.Add(new UnMovedChunk()
-					{
-						Namespace = interval.Namespace,
-						TagRange = tagRange.Tag,
-						Count = unMovedChunks.Count,
-						SourceShards = unMovedChunks.Select(_ => _.Shard).Distinct().Select(_ => $"'{_}'").ToList(),
-						SampleIds = unMovedChunks.Select(_ => _.Id).Take(5).ToList()
-					});
-					
-					intervalCount += unMovedChunks.Count;
-				}
+					Namespace = interval.Namespace,
+					TagRange = tagRange.Tag,
+					Count = unMovedChunks.Count,
+					SourceShards = unMovedChunks.Select(_ => _.Shard).Distinct().Select(_ => $"'{_}'").ToList(),
+				});
+
+				intervalCount += unMovedChunks.Count;
 			}
-			
+
 			return intervalCount;
 		}
 		
@@ -97,8 +95,6 @@ namespace MongoDB.ClusterMaintenance.Operations
 				{
 					Console.WriteLine("  tag range '{0}' wait {1} chunks from {2} shards",
 						unMovedChunk.TagRange, unMovedChunk.Count, string.Join(", ", unMovedChunk.SourceShards));
-					if (unMovedChunk.Count <= 5)
-						Console.WriteLine("  chunksIds: {0}", string.Join(", ", unMovedChunk.SampleIds));
 				}
 			}
 		}
@@ -109,7 +105,6 @@ namespace MongoDB.ClusterMaintenance.Operations
 			public TagIdentity TagRange { get; set; }
 			public int Count { get; set; }
 			public List<string> SourceShards { get; set; }
-			public List<string> SampleIds { get; set; }
 		}
 	}
 }
