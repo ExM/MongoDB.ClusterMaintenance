@@ -9,6 +9,7 @@ using MongoDB.ClusterMaintenance.Config;
 using MongoDB.ClusterMaintenance.Models;
 using MongoDB.ClusterMaintenance.MongoCommands;
 using MongoDB.ClusterMaintenance.ShardSizeEqualizing;
+using MongoDB.ClusterMaintenance.WorkFlow;
 using MongoDB.Driver;
 using NLog;
 
@@ -36,15 +37,103 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_planOnly = planOnly;
 		}
 
+		private IReadOnlyCollection<Shard> _shards;
+		private long _chunkSize;
+		private IList<string> _userDatabases;
+		private IList<CollectionNamespace> _allCollectionNames;
+		private Dictionary<CollectionNamespace, CollStatsResult> _collStatsMap;
+		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
+		private int _totalChunks = 0;
+
+		private async Task getChunkSize(CancellationToken token)
+		{
+			_chunkSize = await _configDb.Settings.GetChunksize();
+		}
+		
+		private async Task loadShards(CancellationToken token)
+		{
+			_shards = await _configDb.Shards.GetAll();
+		}
+
+		private async Task loadUserDatabases(CancellationToken token)
+		{
+			_userDatabases = await _mongoClient.ListUserDatabases(token);
+		}
+		
+		private ObservableTask loadCollections(CancellationToken token)
+		{
+			async Task<IEnumerable<CollectionNamespace>> listCollectionNames(string dbName, CancellationToken t)
+			{
+				var db = _mongoClient.GetDatabase(dbName);
+				var collNames = await db.ListCollectionNames().ToListAsync(t);
+				return collNames.Select(_ => new CollectionNamespace(dbName, _));
+			}
+			
+			return ObservableTask.WithParallels(
+				_userDatabases, 
+				32, 
+				listCollectionNames,
+				allCollectionNames => { _allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList(); },
+				token);
+		}
+		
+		private ObservableTask loadCollectionStatistics(CancellationToken token)
+		{
+			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
+			{
+				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+				var collStats = await db.CollStats(ns.CollectionName, 1, t);
+				return collStats;
+			}
+
+			return ObservableTask.WithParallels(
+				_allCollectionNames, 
+				32, 
+				runCollStats,
+				allCollStats => { _collStatsMap = allCollStats.ToDictionary(_ => _.Ns); },
+				token);
+		}
+		
+		private ObservableTask loadAllCollChunks(CancellationToken token)
+		{
+			var correctionIntervals = _intervals
+				.Where(_ => _.Correction != CorrectionMode.None)
+				.ToList();
+		
+			async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
+			{
+				var allChunks = await (await _configDb.Chunks
+					.ByNamespace(interval.Namespace)
+					.From(interval.Min)
+					.To(interval.Max)
+					.Find()).ToListAsync(t);
+				Interlocked.Add(ref _totalChunks, allChunks.Count);
+				return new Tuple<CollectionNamespace, List<Chunk>>(interval.Namespace, allChunks);
+			}
+
+			return ObservableTask.WithParallels(
+				correctionIntervals, 
+				32, 
+				loadCollChunks,
+				chunksByNs => {  _chunksByCollection = chunksByNs.ToDictionary(_ => _.Item1, _ => _.Item2); },
+				token);
+		}
+		
 		public async Task Run(CancellationToken token)
 		{
-			var chunkSize = await _configDb.Settings.GetChunksize();
-			var shards = await _configDb.Shards.GetAll();
-			var collStatsMap = (await listCollStats(token)).ToDictionary(_ => _.Ns);
-			
-			var chunksByCollection = await loadAllCollChunks(token);
+			var opList = new WorkList()
+			{
+				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
+				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
+				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
+				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
+				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
+				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
+			};
 
-			var unShardedSizeMap = collStatsMap.Values
+			await opList.Apply(token);
+
+			var unShardedSizeMap = _collStatsMap.Values
 				.Where(_ => !_.Sharded)
 				.GroupBy(_ => _.Primary)
 				.ToDictionary(k => k.Key, g => g.Sum(_ => _.Size));
@@ -52,21 +141,21 @@ namespace MongoDB.ClusterMaintenance.Operations
 			var shardByTag =  _intervals
 				.SelectMany(_ => _.Zones)
 				.Distinct()
-				.ToDictionary(_ => _, _ => shards.Single(s => s.Tags.Contains(_)));
+				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 			
 			var zoneOpt = new ZoneOptimizationDescriptor(
 				_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_=> _.Namespace),
-				shards.Select(_ => _.Id));
+				_shards.Select(_ => _.Id));
 
 			foreach (var p in unShardedSizeMap)
 				zoneOpt.UnShardedSize[p.Key] = p.Value;
 
 			foreach (var coll in zoneOpt.Collections)
 			{
-				if(!collStatsMap[coll].Sharded)
+				if(!_collStatsMap[coll].Sharded)
 					continue;
 
-				foreach (var s in collStatsMap[coll].Shards)
+				foreach (var s in _collStatsMap[coll].Shards)
 					zoneOpt[coll, s.Key].CurrentSize = s.Value.Size;
 			}
 
@@ -76,7 +165,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				collCfg.UnShardCompensation = interval.Correction == CorrectionMode.UnShard;
 				collCfg.Priority = interval.Priority;
 				
-				var allChunks = chunksByCollection[interval.Namespace];
+				var allChunks = _chunksByCollection[interval.Namespace];
 				foreach (var tag in interval.Zones)
 				{
 					var shard = shardByTag[tag].Id;
@@ -92,7 +181,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 						_log.Info("Disable size reduction {0} on {1}", interval.Namespace, shard);
 					}
 					else
-						bucket.MinSize = bucket.CurrentSize - chunkSize * (movedChunks - 1);
+						bucket.MinSize = bucket.CurrentSize - _chunkSize * (movedChunks - 1);
 				}
 			}
 
@@ -121,7 +210,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				}
 				else
 				{
-					var collStat = collStatsMap[interval.Namespace];
+					var collStat = _collStatsMap[interval.Namespace];
 					var managedCollSize = interval.Zones.Sum(tag => collStat.Shards[shardByTag[tag].Id].Size);
 					var avgZoneSize = managedCollSize / interval.Zones.Count;
 
@@ -131,47 +220,10 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 				_log.Info("Equalize shards from {0}", interval.Namespace.FullName);
 				_commandPlanWriter.Comment($"Equalize shards from {interval.Namespace.FullName}");
-				await equalizeShards(interval, collStatsMap[interval.Namespace], shards, targetSize, chunksByCollection[interval.Namespace], token);
+				await equalizeShards(interval, _collStatsMap[interval.Namespace], _shards, targetSize, _chunksByCollection[interval.Namespace], token);
 			}
 		}
 		
-		private async Task<IReadOnlyDictionary<CollectionNamespace, List<Chunk>>> loadAllCollChunks(CancellationToken token)
-		{
-			_log.Info("load coll chunks...");
-
-			return (await _intervals
-				.Where(_ => _.Correction != CorrectionMode.None)
-				.ToList()
-				.ParallelsAsync(loadCollChunks, 32, token)).ToDictionary(_ => _.Item1, _ => _.Item2);
-		}
-		
-		private async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken token)
-		{
-			_log.Info("load chunks collection: {0}", interval.Namespace);
-			var allChunks = await (await _configDb.Chunks
-				.ByNamespace(interval.Namespace)
-				.From(interval.Min)
-				.To(interval.Max)
-				.Find()).ToListAsync(token);
-			return new Tuple<CollectionNamespace, List<Chunk>>(interval.Namespace, allChunks);
-		}
-		
-		private async Task<IReadOnlyList<CollStatsResult>> listCollStats(CancellationToken token)
-		{
-			_log.Info("list coll stats...");
-			var allCollectionNames = await _mongoClient.ListUserCollections(token);
-			_log.Info("Found: {0} collections", allCollectionNames.Count);
-
-			return await allCollectionNames.ParallelsAsync(runCollStats, 32, token);
-		}
-		
-		private async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken token)
-		{
-			_log.Info("collection: {0}", ns);
-			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-			return await db.CollStats(ns.CollectionName, 1, token);
-		}
-
 		private async Task equalizeShards(Interval interval, CollStatsResult collStats,
 			IReadOnlyCollection<Shard> shards, IDictionary<TagIdentity, long> targetSize, List<Chunk> allChunks,
 			CancellationToken token)

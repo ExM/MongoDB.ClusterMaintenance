@@ -21,7 +21,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		
 		private IReadOnlyCollection<Shard> _shards;
 		private int _totalUnMovedChunks = 0;
-		private ConcurrentBag<UnMovedChunk> _unMovedChunks = new ConcurrentBag<UnMovedChunk>();
+		private readonly ConcurrentBag<UnMovedChunk> _unMovedChunks = new ConcurrentBag<UnMovedChunk>();
 
 		public BalancerStateOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals)
 		{
@@ -80,7 +80,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		{
 			var opList = new WorkList()
 			{
-				{ "Load user databases", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
+				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
 				{ "Scan intervals", new ObservableWork(scanIntervals, () => _totalUnMovedChunks == 0
 					? "all chunks moved."
 					: $"found {_totalUnMovedChunks} chunks is awaiting movement.")}
