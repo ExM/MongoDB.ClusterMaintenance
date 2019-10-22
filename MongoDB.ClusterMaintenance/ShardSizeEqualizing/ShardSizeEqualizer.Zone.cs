@@ -33,17 +33,19 @@ namespace MongoDB.ClusterMaintenance.ShardSizeEqualizing
 			
 			public long InitialSize  { get; }
 
-			public Zone(ShardIdentity main, TagIdentity tag, long size, long targetSize)
+			public Zone(ShardIdentity main, TagRange tagRange, long size, long targetSize)
 			{
 				Main = main;
-				Tag = tag;
+				TagRange = tagRange;
 				InitialSize = size;
 				CurrentSize = size;
 				TargetSize = targetSize;
 			}
 
 			public ShardIdentity Main { get; }
-			public TagIdentity Tag { get; }
+			public TagRange TagRange { get; }
+
+			public TagIdentity Tag => TagRange.Tag;
 
 			public BsonBound Min => _left.Value;
 			public BsonBound Max => _right.Value;

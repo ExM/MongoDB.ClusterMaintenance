@@ -230,6 +230,20 @@ namespace MongoDB.ClusterMaintenance.Operations
 				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
 		}
+
+		private async Task<ChunkCollection> createChunkCollection(CollectionNamespace ns, CancellationToken token)
+		{
+			var collInfo = await _configDb.Collections.Find(ns);
+			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+			
+			async Task<long> chunkSizeResolver(Chunk chunk)
+			{
+				var result = await db.Datasize(collInfo, chunk, token);
+				return result.Size;
+			}
+			
+			return new ChunkCollection(_chunksByCollection[ns], chunkSizeResolver);
+		}
 		
 		private async Task equalizeWork(Interval interval, CancellationToken token)
 		{
@@ -254,27 +268,16 @@ namespace MongoDB.ClusterMaintenance.Operations
 				foreach (var tag in interval.Zones)
 					targetSize[tag] = avgZoneSize;
 			}
-			
-			await equalizeShards(interval, _collStatsMap[interval.Namespace], _shards, targetSize, _chunksByCollection[interval.Namespace], token);
-		}
-		
-		private async Task equalizeShards(Interval interval, CollStatsResult collStats,
-			IReadOnlyCollection<Shard> shards, IDictionary<TagIdentity, long> targetSize, List<Chunk> allChunks,
-			CancellationToken token)
-		{
-			var collInfo = await _configDb.Collections.Find(interval.Namespace);
-			var db = _mongoClient.GetDatabase(interval.Namespace.DatabaseNamespace.DatabaseName);
-			
-			async Task<long> chunkSizeResolver(Chunk chunk)
-			{
-				var result = await db.Datasize(collInfo, chunk, token);
-				return result.Size;
-			}
 
-			var tagRanges = _tagRangesByNs[interval.Namespace];
+			var chunkColl = await createChunkCollection(interval.Namespace, token);
 			
-			var chunkColl = new ChunkCollection(allChunks, chunkSizeResolver);
-			var equalizer = new ShardSizeEqualizer(shards, collStats.Shards,  tagRanges, targetSize, chunkColl, _moveLimit);
+			var equalizer = new ShardSizeEqualizer(
+				_shards,
+				_collStatsMap[interval.Namespace].Shards,
+				_tagRangesByNs[interval.Namespace],
+				targetSize,
+				chunkColl,
+				_moveLimit);
 
 			var lastZone = equalizer.Zones.Last();
 			foreach (var zone in equalizer.Zones)
@@ -331,7 +334,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			using (var buffer = new TagRangeCommandBuffer(_commandPlanWriter, interval.Namespace))
 			{
-				foreach (var tagRange in tagRanges)
+				foreach (var tagRange in equalizer.Zones.Select(_ => _.TagRange))
 					buffer.RemoveTagRange(tagRange.Min, tagRange.Max, tagRange.Tag);
 
 				foreach (var zone in equalizer.Zones)
