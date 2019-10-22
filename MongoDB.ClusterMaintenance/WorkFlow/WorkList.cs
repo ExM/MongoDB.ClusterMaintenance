@@ -66,9 +66,8 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 						break;
 					
 					case Action<CancellationToken> action:
-						Console.Write(" ... ");
+						Console.WriteLine();
 						action(token);
-						Console.WriteLine("done");
 						break;
 				}
 			}

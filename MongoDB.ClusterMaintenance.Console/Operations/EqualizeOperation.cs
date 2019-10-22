@@ -46,6 +46,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		private int _totalChunks = 0;
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
+		private ZoneOptimizationSolve _solve;
 
 		private async Task getChunkSize(CancellationToken token)
 		{
@@ -166,68 +167,76 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 					var movedChunks = allChunks.Count(_ => _.Shard == shard && !_.Jumbo);
 					if (movedChunks <= 1)
-					{
-						bucket.MinSize = bucket.CurrentSize;
-						_log.Info("Disable size reduction {0} on {1}", interval.Namespace, shard);
-					}
-					else
-						bucket.MinSize = bucket.CurrentSize - _chunkSize * (movedChunks - 1);
+						movedChunks = 1;
+					
+					bucket.MinSize = bucket.CurrentSize - _chunkSize * (movedChunks - 1);
 				}
+			}
+
+			var titlePrinted = false;
+			foreach (var group in _zoneOpt.AllManagedBuckets.Where(_ => _.CurrentSize == _.MinSize)
+				.GroupBy(_ => _.Collection))
+			{
+				if (!titlePrinted)
+				{
+					Console.WriteLine("\tLock reduction of size:");
+					titlePrinted = true;
+				}
+
+				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Shard} ({_.CurrentSize.ByteSize()})"))}");
+			}
+		}
+
+		private void findSolution(CancellationToken token)
+		{
+			_solve = ZoneOptimizationSolve.Find(_zoneOpt, token);
+
+			if(!_solve.IsSuccess)
+				throw new Exception("solution for zone optimization not found");
+
+			var solutionMessage =
+				$"Found solution with max deviation {_solve.TargetShardMaxDeviation.ByteSize()} by shards";
+			Console.WriteLine("\t" + solutionMessage);
+			_commandPlanWriter.Comment(solutionMessage);
+
+			var titlePrinted = false;
+			foreach (var group in _solve.ActiveConstraints.GroupBy(_ => _.Bucket.Collection))
+			{
+				if (!titlePrinted)
+				{
+					Console.WriteLine("\tActive constraint:");
+					titlePrinted = true;
+				}
+				
+				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
 		}
 		
-		public async Task Run(CancellationToken token)
+		private async Task equalizeWork(Interval interval, CancellationToken token)
 		{
-			var opList = new WorkList()
-			{
-				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
-				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
-				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
-				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
-				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
-				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
-				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
-			};
-
-			await opList.Apply(token);
-
-			var solve = ZoneOptimizationSolve.Find(_zoneOpt, token);
-
-			if(!solve.IsSuccess)
-				throw new Exception("solution for zone optimization not found");
+			_commandPlanWriter.Comment($"Equalize shards from {interval.Namespace.FullName}");
 			
-			_log.Info("Found solution with max deviation {0} by shards", solve.TargetShardMaxDeviation.ByteSize());
-			_commandPlanWriter.Comment($"Found solution with max deviation {solve.TargetShardMaxDeviation.ByteSize()} by shards");
+			var targetSize = new Dictionary<TagIdentity, long>();
 
-			foreach(var msg in solve.ActiveConstraints)
-				_log.Info("Active constraint: {0}", msg);
-			
-			foreach (var interval in _intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None))
+			if (interval.Correction == CorrectionMode.UnShard)
 			{
-				var targetSize = new Dictionary<TagIdentity, long>();
-
-				if (interval.Correction == CorrectionMode.UnShard)
+				foreach (var tag in interval.Zones)
 				{
-					foreach (var tag in interval.Zones)
-					{
-						var shId = _shardByTag[tag].Id;
-						targetSize[tag] = solve[interval.Namespace, shId].TargetSize;
-					}
+					var shId = _shardByTag[tag].Id;
+					targetSize[tag] = _solve[interval.Namespace, shId].TargetSize;
 				}
-				else
-				{
-					var collStat = _collStatsMap[interval.Namespace];
-					var managedCollSize = interval.Zones.Sum(tag => collStat.Shards[_shardByTag[tag].Id].Size);
-					var avgZoneSize = managedCollSize / interval.Zones.Count;
-
-					foreach (var tag in interval.Zones)
-						targetSize[tag] = avgZoneSize;
-				}
-
-				_log.Info("Equalize shards from {0}", interval.Namespace.FullName);
-				_commandPlanWriter.Comment($"Equalize shards from {interval.Namespace.FullName}");
-				await equalizeShards(interval, _collStatsMap[interval.Namespace], _shards, targetSize, _chunksByCollection[interval.Namespace], token);
 			}
+			else
+			{
+				var collStat = _collStatsMap[interval.Namespace];
+				var managedCollSize = interval.Zones.Sum(tag => collStat.Shards[_shardByTag[tag].Id].Size);
+				var avgZoneSize = managedCollSize / interval.Zones.Count;
+
+				foreach (var tag in interval.Zones)
+					targetSize[tag] = avgZoneSize;
+			}
+			
+			await equalizeShards(interval, _collStatsMap[interval.Namespace], _shards, targetSize, _chunksByCollection[interval.Namespace], token);
 		}
 		
 		private async Task equalizeShards(Interval interval, CollStatsResult collStats,
@@ -259,8 +268,15 @@ namespace MongoDB.ClusterMaintenance.Operations
 			var lastZone = equalizer.Zones.Last();
 			foreach (var zone in equalizer.Zones)
 			{
-				_log.Info("Zone: {0} Coll: {1} -> {2}",
-					zone.Tag, zone.InitialSize.ByteSize(), zone.TargetSize.ByteSize());
+				var current = zone.InitialSize;
+				var require = zone.TargetSize;
+				var delta = zone.TargetSize - zone.InitialSize;
+				var leftPressure = zone.Left.RequireShiftSize < 0 ? -zone.Left.RequireShiftSize : 0;
+				var rightPressure = zone.Right.RequireShiftSize > 0 ? zone.Right.RequireShiftSize : 0;
+				var pressure = leftPressure + rightPressure;
+				
+				_log.Info("Zone: {0} Coll: {1} -> {2} delta {3} pressure {4}",
+					zone.Tag, current.ByteSize(), require.ByteSize(), delta.ByteSize(), pressure.ByteSize());
 				if(zone != lastZone)
 					_log.Info("RequireShiftSize: {0} ", zone.Right.RequireShiftSize.ByteSize());
 			}
@@ -313,6 +329,32 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			_commandPlanWriter.Comment("---");
 			_commandPlanWriter.Flush();
+		}
+		
+		public async Task Run(CancellationToken token)
+		{
+			var equalizeList = new WorkList();
+			foreach (var interval in _intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None))
+			{
+				equalizeList.Add(
+					$"From {interval.Namespace.FullName}",
+					new SingleWork(t => equalizeWork(interval, t)));
+			}
+
+			var opList = new WorkList()
+			{
+				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
+				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
+				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
+				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
+				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
+				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
+				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
+				{ "Find solution", findSolution},
+				{ "Equalize shards", equalizeList}
+			};
+
+			await opList.Apply(token);
 		}
 	}
 }
