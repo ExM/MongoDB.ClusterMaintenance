@@ -47,6 +47,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
 		private ZoneOptimizationSolve _solve;
+		private Dictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
 
 		private async Task getChunkSize(CancellationToken token)
 		{
@@ -99,6 +100,24 @@ namespace MongoDB.ClusterMaintenance.Operations
 				32, 
 				runCollStats,
 				allCollStats => { _collStatsMap = allCollStats.ToDictionary(_ => _.Ns); },
+				token);
+		}
+		
+		private ObservableTask loadAllTagRanges(CancellationToken token)
+		{
+			async Task<IReadOnlyList<TagRange>> loadTagRanges(Interval interval, CancellationToken t)
+			{
+				var tagRanges = await _configDb.Tags.Get(interval.Namespace, interval.Min, interval.Max);
+				if(tagRanges.Count <= 1)
+					throw new Exception($"interval {interval.Namespace} contain more than one tag ranges");
+				return tagRanges;
+			}
+
+			return ObservableTask.WithParallels(
+				_intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None).ToList(), 
+				16, 
+				loadTagRanges,
+				allTagRanges => { _tagRangesByNs = allTagRanges.ToDictionary(_ => _.First().Namespace, _ => _); },
 				token);
 		}
 		
@@ -243,16 +262,6 @@ namespace MongoDB.ClusterMaintenance.Operations
 			IReadOnlyCollection<Shard> shards, IDictionary<TagIdentity, long> targetSize, List<Chunk> allChunks,
 			CancellationToken token)
 		{
-			var tagRanges = await _configDb.Tags.Get(interval.Namespace, interval.Min, interval.Max);
-
-			if (tagRanges.Count == 0)
-			{
-				_log.Info("tag ranges not found");
-				_commandPlanWriter.Comment("no tag ranges");
-				_commandPlanWriter.Comment("---");
-				return;
-			}
-			
 			var collInfo = await _configDb.Collections.Find(interval.Namespace);
 			var db = _mongoClient.GetDatabase(interval.Namespace.DatabaseNamespace.DatabaseName);
 			
@@ -261,9 +270,11 @@ namespace MongoDB.ClusterMaintenance.Operations
 				var result = await db.Datasize(collInfo, chunk, token);
 				return result.Size;
 			}
+
+			var tagRanges = _tagRangesByNs[interval.Namespace];
 			
 			var chunkColl = new ChunkCollection(allChunks, chunkSizeResolver);
-			var equalizer = new ShardSizeEqualizer(shards, collStats.Shards, tagRanges, targetSize, chunkColl, _moveLimit);
+			var equalizer = new ShardSizeEqualizer(shards, collStats.Shards,  tagRanges, targetSize, chunkColl, _moveLimit);
 
 			var lastZone = equalizer.Zones.Last();
 			foreach (var zone in equalizer.Zones)
@@ -331,6 +342,8 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_commandPlanWriter.Flush();
 		}
 		
+		
+		
 		public async Task Run(CancellationToken token)
 		{
 			var equalizeList = new WorkList();
@@ -348,6 +361,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
 				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
 				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
+				{ "Load tag ranges", new ObservableWork(loadAllTagRanges)},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
 				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
 				{ "Find solution", findSolution},
