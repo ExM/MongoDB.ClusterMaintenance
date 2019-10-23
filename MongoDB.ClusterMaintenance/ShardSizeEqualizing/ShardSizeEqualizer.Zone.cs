@@ -53,6 +53,18 @@ namespace MongoDB.ClusterMaintenance.ShardSizeEqualizing
 			public long CurrentSize { get; private set; }
 			
 			public long TargetSize { get; private set; }
+			
+			public long Delta => TargetSize - InitialSize;
+
+			public long Pressure
+			{
+				get
+				{
+					var leftPressure = Left.RequireShiftSize < 0 ? -Left.RequireShiftSize : 0;
+					var rightPressure = Right.RequireShiftSize > 0 ? Right.RequireShiftSize : 0;
+					return leftPressure + rightPressure;
+				}
+			}
 
 			public void SizeUp(long v)
 			{

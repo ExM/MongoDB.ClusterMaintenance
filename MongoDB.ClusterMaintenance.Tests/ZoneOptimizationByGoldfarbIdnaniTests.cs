@@ -319,6 +319,44 @@ namespace MongoDB.ClusterMaintenance
 			Assert.That(targetShards.Values, Is.EquivalentTo(expectedShards));
 		}
 		
+		[TestCase(1,    new [] {4607, 2696, 2696})]
+		[TestCase(50,   new [] {3825, 3087, 3087})]
+		[TestCase(100,  new [] {3652, 3174, 3174})]
+		[TestCase(500,  new [] {3417, 3292, 3292})]
+		[TestCase(1000, new [] {3377, 3312, 3312})]
+		[TestCase(5000, new [] {3342, 3329, 3329})]
+		public void CollectionEqualsPriority(double collectionEqualsPriority, int[] expectedShards)
+		{
+			var zoneOpt = new ZoneOptimizationDescriptor(
+				new []{_cA, _cB, _cC},
+				new []{_sA, _sB, _sC});
+			
+			zoneOpt[_cA, _sA].Init(b => { b.CurrentSize =    0; b.Managed = false;});
+			zoneOpt[_cA, _sB].Init(b => { b.CurrentSize = 2000; b.Managed = true;});
+			zoneOpt[_cA, _sC].Init(b => { b.CurrentSize = 2000; b.Managed = true;});
+			
+			zoneOpt[_cB, _sA].Init(b => { b.CurrentSize = 5000; b.Managed = true; });
+			zoneOpt[_cB, _sB].Init(b => { b.CurrentSize = 4000; b.Managed = true; });
+			zoneOpt[_cB, _sC].Init(b => { b.CurrentSize = 1000; b.Managed = true; });
+			
+			zoneOpt[_cC, _sA].Init(b => { b.CurrentSize =  500; b.Managed = true; });
+			zoneOpt[_cC, _sB].Init(b => { b.CurrentSize =  500; b.Managed = true; });
+			zoneOpt[_cC, _sC].Init(b => { b.CurrentSize =  500; b.Managed = true; });
+
+			zoneOpt.CollectionSettings[ _cB].Priority = collectionEqualsPriority;
+			
+			var solve = ZoneOptimizationSolve.Find(zoneOpt);
+
+			Assert.IsTrue(solve.IsSuccess);
+			
+			Assert.That(new []
+			{
+				solve[_cB, _sA].TargetSize,
+				solve[_cB, _sB].TargetSize,
+				solve[_cB, _sC].TargetSize
+			}, Is.EquivalentTo(expectedShards));
+		}
+		
 		[Test]
 		public void Trivial()
 		{

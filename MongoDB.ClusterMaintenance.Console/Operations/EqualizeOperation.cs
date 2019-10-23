@@ -43,11 +43,14 @@ namespace MongoDB.ClusterMaintenance.Operations
 		private IList<CollectionNamespace> _allCollectionNames;
 		private Dictionary<CollectionNamespace, CollStatsResult> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
+		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
 		private int _totalChunks = 0;
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
 		private ZoneOptimizationSolve _solve;
 		private Dictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
+		private readonly WorkList _equalizeList = new WorkList();
+
 
 		private async Task getChunkSize(CancellationToken token)
 		{
@@ -118,6 +121,21 @@ namespace MongoDB.ClusterMaintenance.Operations
 				16, 
 				loadTagRanges,
 				allTagRanges => { _tagRangesByNs = allTagRanges.ToDictionary(_ => _.First().Namespace, _ => _); },
+				token);
+		}
+
+		private ObservableTask loadAllShardedCollectionInfo(CancellationToken token)
+		{
+			async Task<ShardedCollectionInfo> loadShardedCollectionInfo(CollectionNamespace ns, CancellationToken t)
+			{
+				return await _configDb.Collections.Find(ns);
+			}
+
+			return ObservableTask.WithParallels(
+				_intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None).Select(_ => _.Namespace).ToList(), 
+				16, 
+				loadShardedCollectionInfo,
+				allShardedCollectionInfo => { _shardedCollectionInfoByNs = allShardedCollectionInfo.ToDictionary(_ => _.Id); },
 				token);
 		}
 		
@@ -205,6 +223,20 @@ namespace MongoDB.ClusterMaintenance.Operations
 				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Shard} ({_.CurrentSize.ByteSize()})"))}");
 			}
 		}
+		
+		private ChunkCollection createChunkCollection(CollectionNamespace ns, CancellationToken token)
+		{
+			var collInfo = _shardedCollectionInfoByNs[ns];
+			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+			
+			async Task<long> chunkSizeResolver(Chunk chunk)
+			{
+				var result = await db.Datasize(collInfo, chunk, token);
+				return result.Size;
+			}
+			
+			return new ChunkCollection(_chunksByCollection[ns], chunkSizeResolver);
+		}
 
 		private void findSolution(CancellationToken token)
 		{
@@ -229,76 +261,60 @@ namespace MongoDB.ClusterMaintenance.Operations
 				
 				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
-		}
 
-		private async Task<ChunkCollection> createChunkCollection(CollectionNamespace ns, CancellationToken token)
-		{
-			var collInfo = await _configDb.Collections.Find(ns);
-			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
+			var pressureByShard = _shards.ToDictionary(_ => _.Id, _ => (long) 0);
 			
-			async Task<long> chunkSizeResolver(Chunk chunk)
+			foreach (var interval in _intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None))
 			{
-				var result = await db.Datasize(collInfo, chunk, token);
-				return result.Size;
+				var targetSizes = interval.Zones.ToDictionary(
+					t => t,
+					t => _solve[interval.Namespace, _shardByTag[t].Id].TargetSize);
+
+				var equalizer = new ShardSizeEqualizer(
+					_shards,
+					_collStatsMap[interval.Namespace].Shards,
+					_tagRangesByNs[interval.Namespace],
+					targetSizes,
+					createChunkCollection(interval.Namespace, token),
+					_moveLimit);
+				
+				Console.WriteLine();
+				Console.WriteLine($"\tEqualize shards from {interval.Namespace}");
+				Console.WriteLine($"\tShard size changes:");
+				foreach (var zone in equalizer.Zones)
+				{
+					var pressure = zone.Pressure;
+					pressureByShard[zone.Main] += pressure;
+					Console.WriteLine(
+						$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
+				}
+				Console.WriteLine($"\tBound changes:");
+				foreach (var zone in equalizer.Zones.Skip(1))
+				{
+					var bound = zone.Left;
+					var shift = zone.Left.RequireShiftSize;
+					var targetSymbol = shift == 0 ? "--" : (shift > 0 ? "->" : "<-");
+					if (shift < 0)
+						shift = -shift;
+					Console.WriteLine(
+						$"\t\t[{bound.LeftZone.Main}] {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
+				}
+
+				if(!_planOnly)
+					_equalizeList.Add(
+						$"From {interval.Namespace.FullName}", new SingleWork(t => equalizeWork(interval.Namespace, equalizer, t)));
 			}
 			
-			return new ChunkCollection(_chunksByCollection[ns], chunkSizeResolver);
+			Console.WriteLine();
+			Console.WriteLine($"\tTotal update pressure:");
+
+			foreach (var pair in pressureByShard)
+				Console.WriteLine($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
 		}
 		
-		private async Task equalizeWork(Interval interval, CancellationToken token)
+		private async Task equalizeWork(CollectionNamespace ns, ShardSizeEqualizer equalizer, CancellationToken token)
 		{
-			_commandPlanWriter.Comment($"Equalize shards from {interval.Namespace.FullName}");
-			
-			var targetSize = new Dictionary<TagIdentity, long>();
-
-			if (interval.Correction == CorrectionMode.UnShard)
-			{
-				foreach (var tag in interval.Zones)
-				{
-					var shId = _shardByTag[tag].Id;
-					targetSize[tag] = _solve[interval.Namespace, shId].TargetSize;
-				}
-			}
-			else
-			{
-				var collStat = _collStatsMap[interval.Namespace];
-				var managedCollSize = interval.Zones.Sum(tag => collStat.Shards[_shardByTag[tag].Id].Size);
-				var avgZoneSize = managedCollSize / interval.Zones.Count;
-
-				foreach (var tag in interval.Zones)
-					targetSize[tag] = avgZoneSize;
-			}
-
-			var chunkColl = await createChunkCollection(interval.Namespace, token);
-			
-			var equalizer = new ShardSizeEqualizer(
-				_shards,
-				_collStatsMap[interval.Namespace].Shards,
-				_tagRangesByNs[interval.Namespace],
-				targetSize,
-				chunkColl,
-				_moveLimit);
-
-			var lastZone = equalizer.Zones.Last();
-			foreach (var zone in equalizer.Zones)
-			{
-				var current = zone.InitialSize;
-				var require = zone.TargetSize;
-				var delta = zone.TargetSize - zone.InitialSize;
-				var leftPressure = zone.Left.RequireShiftSize < 0 ? -zone.Left.RequireShiftSize : 0;
-				var rightPressure = zone.Right.RequireShiftSize > 0 ? zone.Right.RequireShiftSize : 0;
-				var pressure = leftPressure + rightPressure;
-				
-				_log.Info("Zone: {0} Coll: {1} -> {2} delta {3} pressure {4}",
-					zone.Tag, current.ByteSize(), require.ByteSize(), delta.ByteSize(), pressure.ByteSize());
-				if(zone != lastZone)
-					_log.Info("RequireShiftSize: {0} ", zone.Right.RequireShiftSize.ByteSize());
-			}
-			
-			if (_planOnly)
-			{
-				return;
-			}
+			_commandPlanWriter.Comment($"Equalize shards from {ns}");
 			
 			var rounds = 0;
 			var progress = new TargetProgressReporter(equalizer.MovedSize, equalizer.RequireMoveSize, LongExtensions.ByteSize, () =>
@@ -332,7 +348,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_commandPlanWriter.Comment(equalizer.RenderState());
 			_commandPlanWriter.Comment("change tags");
 
-			using (var buffer = new TagRangeCommandBuffer(_commandPlanWriter, interval.Namespace))
+			using (var buffer = new TagRangeCommandBuffer(_commandPlanWriter, ns))
 			{
 				foreach (var tagRange in equalizer.Zones.Select(_ => _.TagRange))
 					buffer.RemoveTagRange(tagRange.Min, tagRange.Max, tagRange.Tag);
@@ -345,18 +361,8 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_commandPlanWriter.Flush();
 		}
 		
-		
-		
 		public async Task Run(CancellationToken token)
 		{
-			var equalizeList = new WorkList();
-			foreach (var interval in _intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None))
-			{
-				equalizeList.Add(
-					$"From {interval.Namespace.FullName}",
-					new SingleWork(t => equalizeWork(interval, t)));
-			}
-
 			var opList = new WorkList()
 			{
 				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
@@ -365,13 +371,19 @@ namespace MongoDB.ClusterMaintenance.Operations
 				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
 				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
 				{ "Load tag ranges", new ObservableWork(loadAllTagRanges)},
+				{ "Load sharded collection info", new ObservableWork(loadAllShardedCollectionInfo)},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
 				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
 				{ "Find solution", findSolution},
-				{ "Equalize shards", equalizeList}
+				{ "Equalize shards", _equalizeList}
 			};
 
 			await opList.Apply(token);
+		}
+
+		private class EqualizeLimits
+		{
+			
 		}
 	}
 }
