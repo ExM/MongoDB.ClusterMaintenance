@@ -289,6 +289,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 						$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
 				}
 				Console.WriteLine($"\tBound changes:");
+				Console.Write($"\t\t[{equalizer.Zones.First().Main}]");
 				foreach (var zone in equalizer.Zones.Skip(1))
 				{
 					var bound = zone.Left;
@@ -296,10 +297,10 @@ namespace MongoDB.ClusterMaintenance.Operations
 					var targetSymbol = shift == 0 ? "--" : (shift > 0 ? "->" : "<-");
 					if (shift < 0)
 						shift = -shift;
-					Console.WriteLine(
-						$"\t\t[{bound.LeftZone.Main}] {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
+					Console.Write($" {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
 				}
-
+				Console.WriteLine();
+				
 				if(!_planOnly)
 					_equalizeList.Add(
 						$"From {interval.Namespace.FullName}", new SingleWork(t => equalizeWork(interval.Namespace, equalizer, t)));
@@ -330,7 +331,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				token.ThrowIfCancellationRequested();
 			}
 
-			await progress.Finalize();
+			await progress.Stop();
 			
 			if (rounds == 0)
 			{

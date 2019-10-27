@@ -68,7 +68,7 @@ namespace MongoDB.ClusterMaintenance
 			return _forward ? copyCurrent < _target : _target < copyCurrent;
 		}
 
-		public async Task Finalize()
+		public async Task Stop()
 		{
 			_cts.Cancel();
 			try
