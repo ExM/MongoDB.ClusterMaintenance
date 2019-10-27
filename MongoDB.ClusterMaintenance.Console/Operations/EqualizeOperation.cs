@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,7 +51,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		private ZoneOptimizationSolve _solve;
 		private Dictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
 		private readonly WorkList _equalizeList = new WorkList();
-
+		private TotalEqualizeReporter _totalEqualizeReporter;
 
 		private async Task getChunkSize(CancellationToken token)
 		{
@@ -262,8 +263,8 @@ namespace MongoDB.ClusterMaintenance.Operations
 				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
 
-			var pressureByShard = _shards.ToDictionary(_ => _.Id, _ => (long) 0);
-			
+			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
+
 			foreach (var interval in _intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None))
 			{
 				var targetSizes = interval.Zones.ToDictionary(
@@ -275,8 +276,9 @@ namespace MongoDB.ClusterMaintenance.Operations
 					_collStatsMap[interval.Namespace].Shards,
 					_tagRangesByNs[interval.Namespace],
 					targetSizes,
-					createChunkCollection(interval.Namespace, token),
-					_moveLimit);
+					createChunkCollection(interval.Namespace, token));
+
+				equalizer.OnMoveChunk += _totalEqualizeReporter.ChunkMoving;
 				
 				Console.WriteLine();
 				Console.WriteLine($"\tEqualize shards from {interval.Namespace}");
@@ -284,7 +286,8 @@ namespace MongoDB.ClusterMaintenance.Operations
 				foreach (var zone in equalizer.Zones)
 				{
 					var pressure = zone.Pressure;
-					pressureByShard[zone.Main] += pressure;
+
+					_totalEqualizeReporter.AddPressure(zone.Main, pressure);
 					Console.WriteLine(
 						$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
 				}
@@ -309,12 +312,17 @@ namespace MongoDB.ClusterMaintenance.Operations
 			Console.WriteLine();
 			Console.WriteLine($"\tTotal update pressure:");
 
-			foreach (var pair in pressureByShard)
+			foreach (var pair in _totalEqualizeReporter.PressureByShard)
 				Console.WriteLine($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
+			
+			_totalEqualizeReporter.Start();
 		}
 		
 		private async Task equalizeWork(CollectionNamespace ns, ShardSizeEqualizer equalizer, CancellationToken token)
 		{
+			if (_totalEqualizeReporter.OutOfLimit)
+				return;
+			
 			_commandPlanWriter.Comment($"Equalize shards from {ns}");
 			
 			
@@ -328,8 +336,12 @@ namespace MongoDB.ClusterMaintenance.Operations
 				progressReporter.TryRender(() => new[]
 				{
 					$"Rounds: {rounds} SizeDeviation: {equalizer.CurrentSizeDeviation.ByteSize()}",
-					equalizer.RenderState()
+					equalizer.RenderState(),
+					_totalEqualizeReporter.RenderState()
 				});
+
+				if (_totalEqualizeReporter.OutOfLimit)
+					break;
 				
 				if(token.IsCancellationRequested)
 					break;
@@ -388,10 +400,65 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			await opList.Apply(token);
 		}
-
-		private class EqualizeLimits
+		
+		private class TotalEqualizeReporter
 		{
+			private readonly long? _moveLimit;
+			private Stopwatch _sw;
+			private readonly Dictionary<ShardIdentity, long> _pressureByShard = new Dictionary<ShardIdentity, long>();
+			private long _totalPressure;
+			private long _currentPressure;
+			private Dictionary<ShardIdentity, long> _limitByShard;
+
+			public bool OutOfLimit { get; private set; }
+
+			public TotalEqualizeReporter(long? moveLimit)
+			{
+				_moveLimit = moveLimit;
+			}
+
+			public void Start()
+			{
+				_limitByShard = _pressureByShard.ToDictionary(_ => _.Key, _ => Math.Min(_.Value, _moveLimit ?? _.Value));
+				
+				_totalPressure = _limitByShard.Sum(_ => _.Value);
+				_currentPressure = 0;
+				
+				_sw = Stopwatch.StartNew();
+			}
+
+			public void ChunkMoving(object sender, ShardSizeEqualizer.ChunkMovingArgs e)
+			{
+				_currentPressure += e.ChunkSize;
+				_limitByShard[e.Target.Main] -= e.ChunkSize;
+
+				if (_limitByShard[e.Target.Main] < 0)
+					OutOfLimit = true;
+			}
+
+			public void AddPressure(ShardIdentity shard, long pressure)
+			{
+				if (_pressureByShard.ContainsKey(shard))
+					_pressureByShard[shard] += pressure;
+				else
+					_pressureByShard[shard] = pressure;
+			}
+
+			public IReadOnlyDictionary<ShardIdentity, long> PressureByShard => _pressureByShard;
+
+			public string RenderState()
+			{
+				if (_totalPressure == 0)
+					return "";
 			
+				var elapsed = _sw.Elapsed;
+				var percent = (double) _currentPressure / _totalPressure;
+				var s = percent <= 0 ? 0 : (1 - percent) / percent;
+
+				var eta = TimeSpan.FromSeconds(elapsed.TotalSeconds * s);
+
+				return $"All progress {_currentPressure.ByteSize()}/{_totalPressure.ByteSize()} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} ETA: {eta:d\\.hh\\:mm\\:ss\\.f}";
+			}
 		}
 	}
 }

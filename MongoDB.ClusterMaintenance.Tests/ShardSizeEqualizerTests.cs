@@ -77,7 +77,7 @@ namespace MongoDB.ClusterMaintenance
 
 			var chunkColl = new ChunkCollection(chunks, (ch) => Task.FromResult<long>(10));
 
-			var equalizer = new ShardSizeEqualizer(shards, collStatsByShards, tagRanges, null, chunkColl, null);
+			var equalizer = new ShardSizeEqualizer(shards, collStatsByShards, tagRanges, null, chunkColl);
 
 			var round = 0;
 			while(await equalizer.Equalize())

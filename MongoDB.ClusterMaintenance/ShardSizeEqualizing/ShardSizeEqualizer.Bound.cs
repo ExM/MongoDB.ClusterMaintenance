@@ -10,6 +10,7 @@ namespace MongoDB.ClusterMaintenance.ShardSizeEqualizing
 	{
 		public class Bound
 		{
+			private readonly ShardSizeEqualizer _shardSizeEqualizer;
 			private readonly ChunkCollection _chunks;
 			public Zone LeftZone { get; set; }
 			public ChunkCollection.Entry LeftChunk { get; private set; }
@@ -25,9 +26,10 @@ namespace MongoDB.ClusterMaintenance.ShardSizeEqualizing
 			
 			private ChunkCollection.Entry _nextChunk;
 
-			internal Bound(ChunkCollection chunks, BsonBound value)
+			internal Bound(ShardSizeEqualizer shardSizeEqualizer, ChunkCollection chunks, BsonBound value)
 			{
 				Value = value;
+				_shardSizeEqualizer = shardSizeEqualizer;
 				_chunks = chunks;
 				LeftChunk = _chunks.FindLeft(value);
 				RightChunk =_chunks.FindRight(value);
@@ -54,6 +56,8 @@ namespace MongoDB.ClusterMaintenance.ShardSizeEqualizing
 					if ((_shiftSize - nextChunkSize/2) < RequireShiftSize)
 						return false;
 
+					_shardSizeEqualizer.onChunkMoving(LeftZone, RightZone, this, nextChunkSize);
+
 					Interlocked.Add(ref _shiftSize, -nextChunkSize);
 					LeftZone.SizeDown(nextChunkSize);
 					RightZone.SizeUp(nextChunkSize);
@@ -76,6 +80,8 @@ namespace MongoDB.ClusterMaintenance.ShardSizeEqualizing
 					
 					if ((_shiftSize + nextChunkSize/2) > RequireShiftSize)
 						return false;
+					
+					_shardSizeEqualizer.onChunkMoving(RightZone, LeftZone, this, nextChunkSize);
 					
 					Interlocked.Add(ref _shiftSize, nextChunkSize);
 					LeftZone.SizeUp(nextChunkSize);

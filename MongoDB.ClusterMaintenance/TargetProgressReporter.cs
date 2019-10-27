@@ -79,7 +79,7 @@ namespace MongoDB.ClusterMaintenance
 			_consoleBookmark.Clear();
 			_consoleBookmark.Render("");
 			_consoleBookmark.Render(
-				$"Progress {_valueRenderer(_current)}/{_valueRenderer(_target)} Elapsed: {elapsed} ETA: {eta}");
+				$"Progress {_valueRenderer(_current)}/{_valueRenderer(_target)} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} ETA: {eta:d\\.hh\\:mm\\:ss\\.f}");
 
 			foreach (var line in _outerState)
 			{

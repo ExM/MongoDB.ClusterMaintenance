@@ -45,7 +45,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 				frame.ClearAndRender(new []
 				{
 					"",
-					$"# Progress: {progress.Completed}/{progress.Total} Elapsed: {progress.Elapsed} Left: {progress.Left}"
+					$"# Progress: {progress.Completed}/{progress.Total} Elapsed: {progress.Elapsed:d\\.hh\\:mm\\:ss\\.f} Left: {progress.Left:d\\.hh\\:mm\\:ss\\.f}"
 				});
 
 				try

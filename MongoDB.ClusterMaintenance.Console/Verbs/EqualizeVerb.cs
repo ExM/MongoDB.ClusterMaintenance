@@ -9,7 +9,7 @@ namespace MongoDB.ClusterMaintenance.Verbs
 	[Verb("equalize", HelpText = "alignment size shards by moving bound of zones")]
 	public class EqualizeVerb: BaseCommandFileVerb
 	{
-		[Option("moveLimit", Required = false, Default = null, HelpText = "limit of moving data (Gb)")]
+		[Option("moveLimit", Required = false, Default = null, HelpText = "limit of moving data (Mb)")]
 		public long? MoveLimit { get; set; }
 		
 		[Option("planOnly", Required = false, Default = false, HelpText = "show moving plan without equalization")]
@@ -19,7 +19,7 @@ namespace MongoDB.ClusterMaintenance.Verbs
 		{
 			long? scaledMoveLimit = null;
 			if (MoveLimit.HasValue)
-				scaledMoveLimit = MoveLimit.Value * ScaleSuffix.Giga.Factor();
+				scaledMoveLimit = MoveLimit.Value * ScaleSuffix.Mega.Factor();
 			
 			kernel.Bind<IOperation>().To<EqualizeOperation>()
 				.WithConstructorArgument(scaledMoveLimit)
