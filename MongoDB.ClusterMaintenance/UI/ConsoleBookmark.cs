@@ -4,30 +4,19 @@ using System.Linq;
 
 namespace MongoDB.ClusterMaintenance.UI
 {
-	public class ConsoleFrame: IFrameBuilder
+	public class ConsoleBookmark
 	{
-		private readonly Action<IFrameBuilder> _frameRenderer;
 		private readonly int _startTop;
 		private readonly int _startLeft;
-		
 		private readonly List<int> _renderedLines = new List<int>();
 		
-		private readonly object _sync = new object();
-		
-		public ConsoleFrame(Action<IFrameBuilder> frameRenderer)
+		public ConsoleBookmark()
 		{
-			_frameRenderer = frameRenderer;
 			_startTop = Console.CursorTop;
 			_startLeft = Console.CursorLeft;
 		}
 
 		public void Clear()
-		{
-			lock (_sync)
-				innerClear();
-		}
-
-		private void innerClear()
 		{
 			Console.SetCursorPosition(_startLeft, _startTop);
 
@@ -46,21 +35,25 @@ namespace MongoDB.ClusterMaintenance.UI
 			Console.SetCursorPosition(_startLeft, _startTop);
 		}
 
-		public void Refresh()
+		public void ClearAndRender(IEnumerable<string> lines)
 		{
-			lock (_sync)
+			Clear();
+
+			foreach (var line in lines)
 			{
-				innerClear();
-				_frameRenderer(this);
+				if(_renderedLines.Count != 0)
+					Console.WriteLine();
+				Console.Write(line);
+				_renderedLines.Add(line.Length);
 			}
 		}
-
-		void IFrameBuilder.AppendLine(string text)
+		
+		public void Render(string line)
 		{
 			if(_renderedLines.Count != 0)
 				Console.WriteLine();
-			Console.Write(text);
-			_renderedLines.Add(text.Length);
+			Console.Write(line);
+			_renderedLines.Add(line.Length);
 		}
 	}
 }

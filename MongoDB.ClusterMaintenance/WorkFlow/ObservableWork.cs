@@ -16,55 +16,49 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			_doneMessageRenderer = doneMessageRenderer;
 		}
 
-		public virtual async Task Apply(CancellationToken token)
+		public async Task Apply(CancellationToken token)
 		{
 			var work = _action(token);
 
 			var progress = work.Progress;
 
-			var frame = new ConsoleFrame(builder =>
-			{
-				progress.Refresh();
-				builder.AppendLine("");
-				builder.AppendLine(
-					$"# Progress: {progress.Completed}/{progress.Total} Elapsed: {progress.Elapset} Left: {progress.Left}");
-			});
-
 			var cts = new CancellationTokenSource();
 
 			var cancelProgressLoop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, token).Token;
 			
-			var progressTask = Task.Factory.StartNew(() => showProgressLoop(frame, cancelProgressLoop), TaskCreationOptions.LongRunning);
+			var progressTask = Task.Factory.StartNew(() => showProgressLoop(progress, cancelProgressLoop), TaskCreationOptions.LongRunning);
 
-			try
-			{
-				await work.Task;
-			}
-			finally
-			{
-				cts.Cancel();
-				await progressTask;
-				frame.Clear();
-			}
+			await work.Task;
+			cts.Cancel();
+			
+			await progressTask;
 
 			Console.WriteLine(_doneMessageRenderer == null ? "done" : _doneMessageRenderer());
 		}
 		
-		private async Task showProgressLoop(ConsoleFrame frame, CancellationToken token)
+		private async Task showProgressLoop(Progress progress, CancellationToken token)
 		{
+			var frame = new ConsoleBookmark();
 			while (!token.IsCancellationRequested)
 			{
-				frame.Refresh();
+				progress.Refresh();
+				frame.ClearAndRender(new []
+				{
+					"",
+					$"# Progress: {progress.Completed}/{progress.Total} Elapsed: {progress.Elapsed} Left: {progress.Left}"
+				});
 
 				try
 				{
-					await Task.Delay(250, token);
+					await Task.Delay(200, token);
 				}
 				catch (TaskCanceledException)
 				{
-					return;
+					break;
 				}
 			}
+			
+			frame.Clear();
 		}
 	}
 }

@@ -1,36 +1,37 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using MongoDB.ClusterMaintenance.UI;
 using NLog;
 
 namespace MongoDB.ClusterMaintenance
 {
 	public class TargetProgressReporter
 	{
-		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-		private long _current;
 		private readonly long _target;
-		private readonly Func<long, string> _renderer;
+		private readonly Func<long, string> _valueRenderer;
 		private readonly long _source;
-		private readonly bool _forward;
-		private readonly Action _onShowProgress;
 		private readonly CancellationTokenSource _cts;
 		private readonly Task _loop;
 		private readonly Stopwatch _sw;
 
-		public TargetProgressReporter(long source, long target, Func<long, string> renderer = null, Action onShowProgress = null)
+		private readonly object _sync = new object();
+		private readonly ConsoleBookmark _consoleBookmark= new ConsoleBookmark();
+		private long _current;
+		private bool _outerStateRendered = false;
+		private readonly List<string> _outerState = new List<string>();
+
+		public TargetProgressReporter(long source, long target, Func<long, string> valueRenderer = null)
 		{
 			_target = target;
-			_renderer = renderer ?? defaultRenderer;
+			_valueRenderer = valueRenderer ?? defaultRenderer;
 			_source = source;
 			_current = source;
-			_forward = _source < _target;
 			
-			_onShowProgress = onShowProgress;
 			_cts = new CancellationTokenSource();
-			_log.Info("Start from {0} to {1}", _renderer(_source), _renderer(_target));
 			_sw = Stopwatch.StartNew();
 			_loop = showProgressLoop();
 		}
@@ -42,46 +43,72 @@ namespace MongoDB.ClusterMaintenance
 
 		public void Update(long current)
 		{
-			Interlocked.Exchange(ref _current, current);
+			lock (_sync)
+				_current = current;
 		}
 		
 		private async Task showProgressLoop()
 		{
-			while (showProgress())
-				await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+			while (true)
+			{
+				lock (_sync)
+					showProgress();
+					
+				try
+				{
+					await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+				}
+				catch (TaskCanceledException)
+				{
+					break;
+				}
+			}
+			
+			lock (_sync)
+				_consoleBookmark.Clear();
 		}
 
-		private bool showProgress()
+		private void showProgress()
 		{
-			var copyCurrent = Interlocked.Read(ref _current);
-
 			var elapsed = _sw.Elapsed;
-			var percent = (double)(_source - copyCurrent) / (_source - _target);
+			var percent = (double) (_source - _current) / (_source - _target);
 			var s = percent <= 0 ? 0 : (1 - percent) / percent;
 
 			var eta = TimeSpan.FromSeconds(elapsed.TotalSeconds * s);
 
-			_log.Info("Progress {0}/{1} Elapsed: {2} ETA: {3}", _renderer(copyCurrent), _renderer(_target), elapsed, eta);
+			_consoleBookmark.Clear();
+			_consoleBookmark.Render("");
+			_consoleBookmark.Render(
+				$"Progress {_valueRenderer(_current)}/{_valueRenderer(_target)} Elapsed: {elapsed} ETA: {eta}");
 
-			_onShowProgress?.Invoke();
-			
-			return _forward ? copyCurrent < _target : _target < copyCurrent;
+			foreach (var line in _outerState)
+			{
+				_consoleBookmark.Render(line);
+			}
+
+			_outerStateRendered = true;
 		}
 
 		public async Task Stop()
 		{
 			_cts.Cancel();
-			try
+			await _loop;
+		}
+
+		public void TryRender(Func<string[]> linesRenderer)
+		{
+			lock (_sync)
 			{
-				await _loop;
+				if (!_outerStateRendered)
+					return;
+
+				_outerStateRendered = false;
+
+				_outerState.Clear();
+
+				foreach (var line in linesRenderer())
+					_outerState.Add(line);
 			}
-			catch (TaskCanceledException)
-			{
-			}
-			
-			var copyCurrent = Interlocked.Read(ref _current);
-			_log.Info("Done {0}", _renderer(copyCurrent));
-			_onShowProgress?.Invoke();
 		}
 	}
 }

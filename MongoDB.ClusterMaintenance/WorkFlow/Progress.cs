@@ -8,7 +8,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 	{
 		public long Completed { get; private set; } 
 		public long Total { get; private set; }
-		public TimeSpan Elapset { get; private set; }
+		public TimeSpan Elapsed { get; private set; }
 		public TimeSpan Left { get; private set; }
 		
 		public Progress(long total)
@@ -21,7 +21,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 		{
 			Total = _total;
 			Completed = Interlocked.Read(ref _completed);
-			Elapset = _sw.Elapsed;
+			Elapsed = _sw.Elapsed;
 
 			if (Total <= Completed)
 				Left = TimeSpan.Zero;
@@ -30,7 +30,7 @@ namespace MongoDB.ClusterMaintenance.WorkFlow
 			else
 			{
 				var leftPercent = (double) (Total - Completed) / Completed;
-				Left = TimeSpan.FromSeconds(Elapset.TotalSeconds * leftPercent);
+				Left = TimeSpan.FromSeconds(Elapsed.TotalSeconds * leftPercent);
 			}
 		}
 

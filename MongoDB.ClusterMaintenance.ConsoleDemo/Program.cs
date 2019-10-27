@@ -64,7 +64,7 @@ namespace MongoDB.ClusterMaintenance.ConsoleDemo
 		
 		private static ObservableTask observableWork(CancellationToken token)
 		{
-			var innerTasks = Enumerable.Range(0, 1000).ToList();
+			var innerTasks = Enumerable.Range(0, 500).ToList();
 			
 			var rnd = new Random();
 			

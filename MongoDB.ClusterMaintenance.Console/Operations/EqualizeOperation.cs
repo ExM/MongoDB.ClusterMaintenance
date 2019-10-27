@@ -317,26 +317,33 @@ namespace MongoDB.ClusterMaintenance.Operations
 		{
 			_commandPlanWriter.Comment($"Equalize shards from {ns}");
 			
+			
 			var rounds = 0;
-			var progress = new TargetProgressReporter(equalizer.MovedSize, equalizer.RequireMoveSize, LongExtensions.ByteSize, () =>
-			{
-				_log.Info("Rounds: {0} SizeDeviation: {1}", rounds, equalizer.CurrentSizeDeviation.ByteSize());
-				_log.Info(equalizer.RenderState());
-			});
+			var progressReporter = new TargetProgressReporter(equalizer.MovedSize, equalizer.RequireMoveSize, LongExtensions.ByteSize);
 			
 			while(await equalizer.Equalize())
 			{
 				rounds++;
-				progress.Update(equalizer.MovedSize);
-				token.ThrowIfCancellationRequested();
+				progressReporter.Update(equalizer.MovedSize);
+				progressReporter.TryRender(() => new[]
+				{
+					$"Rounds: {rounds} SizeDeviation: {equalizer.CurrentSizeDeviation.ByteSize()}",
+					equalizer.RenderState()
+				});
+				
+				if(token.IsCancellationRequested)
+					break;
 			}
 
-			await progress.Stop();
+			await progressReporter.Stop();
+			
+			token.ThrowIfCancellationRequested();
 			
 			if (rounds == 0)
 			{
 				_commandPlanWriter.Comment("no correction");
 				_commandPlanWriter.Comment("---");
+				_commandPlanWriter.Flush();
 				return;
 			}
 			
