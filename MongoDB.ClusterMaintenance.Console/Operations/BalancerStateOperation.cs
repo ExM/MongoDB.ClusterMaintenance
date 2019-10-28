@@ -29,9 +29,10 @@ namespace MongoDB.ClusterMaintenance.Operations
 			_configDb = configDb;
 		}
 		
-		private async Task loadShards(CancellationToken token)
+		private async Task<string> loadShards(CancellationToken token)
 		{
 			_shards = await _configDb.Shards.GetAll();
+			return $"found {_shards.Count} shards.";
 		}
 		
 		private async Task<int> scanInterval(Interval interval, CancellationToken token)
@@ -80,7 +81,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 		{
 			var opList = new WorkList()
 			{
-				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
+				{ "Load shard list", new SingleWork(loadShards)},
 				{ "Scan intervals", new ObservableWork(scanIntervals, () => _totalUnMovedChunks == 0
 					? "all chunks moved."
 					: $"found {_totalUnMovedChunks} chunks is awaiting movement.")}

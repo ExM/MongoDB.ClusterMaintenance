@@ -312,16 +312,16 @@ namespace MongoDB.ClusterMaintenance.Operations
 			Console.WriteLine();
 			Console.WriteLine($"\tTotal update pressure:");
 
-			foreach (var pair in _totalEqualizeReporter.PressureByShard)
+			foreach (var pair in _totalEqualizeReporter.TotalPressureByShard)
 				Console.WriteLine($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
 			
 			_totalEqualizeReporter.Start();
 		}
 		
-		private async Task equalizeWork(CollectionNamespace ns, ShardSizeEqualizer equalizer, CancellationToken token)
+		private async Task<string> equalizeWork(CollectionNamespace ns, ShardSizeEqualizer equalizer, CancellationToken token)
 		{
 			if (_totalEqualizeReporter.OutOfLimit)
-				return;
+				return "skipped";
 			
 			_commandPlanWriter.Comment($"Equalize shards from {ns}");
 			
@@ -356,7 +356,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 				_commandPlanWriter.Comment("no correction");
 				_commandPlanWriter.Comment("---");
 				_commandPlanWriter.Flush();
-				return;
+				return "no correction";
 			}
 			
 			foreach (var zone in equalizer.Zones)
@@ -379,6 +379,12 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			_commandPlanWriter.Comment("---");
 			_commandPlanWriter.Flush();
+			
+			var breakByLimitMessage = _totalEqualizeReporter.OutOfLimit
+				? " break by limit"
+				: "";
+
+			return $"unmoved data size {equalizer.RequireMoveSize.ByteSize()}" + breakByLimitMessage;
 		}
 		
 		public async Task Run(CancellationToken token)
@@ -399,16 +405,25 @@ namespace MongoDB.ClusterMaintenance.Operations
 			};
 
 			await opList.Apply(token);
+			
+			_commandPlanWriter.Comment($"\tMoved chunks: {_totalEqualizeReporter.MovedChunks}");
+			_commandPlanWriter.Comment($"\tCurrent update pressure:");
+			foreach (var pair in _totalEqualizeReporter.CurrentPressureByShard)
+				_commandPlanWriter.Comment($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
 		}
 		
 		private class TotalEqualizeReporter
 		{
 			private readonly long? _moveLimit;
 			private Stopwatch _sw;
-			private readonly Dictionary<ShardIdentity, long> _pressureByShard = new Dictionary<ShardIdentity, long>();
+			private readonly Dictionary<ShardIdentity, long> _totalPressureByShard = new Dictionary<ShardIdentity, long>();
+			
 			private long _totalPressure;
 			private long _currentPressure;
 			private Dictionary<ShardIdentity, long> _limitByShard;
+			private Dictionary<ShardIdentity, long> _currentPressureByShard;
+			
+			public int MovedChunks { get; private set; }
 
 			public bool OutOfLimit { get; private set; }
 
@@ -419,8 +434,8 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			public void Start()
 			{
-				_limitByShard = _pressureByShard.ToDictionary(_ => _.Key, _ => Math.Min(_.Value, _moveLimit ?? _.Value));
-				
+				_limitByShard = _totalPressureByShard.ToDictionary(_ => _.Key, _ => Math.Min(_.Value, _moveLimit ?? _.Value));
+				_currentPressureByShard = _totalPressureByShard.ToDictionary(_ => _.Key, _ => (long)0);
 				_totalPressure = _limitByShard.Sum(_ => _.Value);
 				_currentPressure = 0;
 				
@@ -429,8 +444,10 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			public void ChunkMoving(object sender, ShardSizeEqualizer.ChunkMovingArgs e)
 			{
+				MovedChunks++;
 				_currentPressure += e.ChunkSize;
 				_limitByShard[e.Target.Main] -= e.ChunkSize;
+				_currentPressureByShard[e.Target.Main] += e.ChunkSize;
 
 				if (_limitByShard[e.Target.Main] < 0)
 					OutOfLimit = true;
@@ -438,14 +455,16 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 			public void AddPressure(ShardIdentity shard, long pressure)
 			{
-				if (_pressureByShard.ContainsKey(shard))
-					_pressureByShard[shard] += pressure;
+				if (_totalPressureByShard.ContainsKey(shard))
+					_totalPressureByShard[shard] += pressure;
 				else
-					_pressureByShard[shard] = pressure;
+					_totalPressureByShard[shard] = pressure;
 			}
 
-			public IReadOnlyDictionary<ShardIdentity, long> PressureByShard => _pressureByShard;
+			public IReadOnlyDictionary<ShardIdentity, long> TotalPressureByShard => _totalPressureByShard;
 
+			public IReadOnlyDictionary<ShardIdentity, long> CurrentPressureByShard => _currentPressureByShard;
+			
 			public string RenderState()
 			{
 				if (_totalPressure == 0)
@@ -457,7 +476,7 @@ namespace MongoDB.ClusterMaintenance.Operations
 
 				var eta = TimeSpan.FromSeconds(elapsed.TotalSeconds * s);
 
-				return $"All progress {_currentPressure.ByteSize()}/{_totalPressure.ByteSize()} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} ETA: {eta:d\\.hh\\:mm\\:ss\\.f}";
+				return $"All progress {_currentPressure.ByteSize()}/{_totalPressure.ByteSize()} Moved chunks: {MovedChunks} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} ETA: {eta:d\\.hh\\:mm\\:ss\\.f}";
 			}
 		}
 	}
