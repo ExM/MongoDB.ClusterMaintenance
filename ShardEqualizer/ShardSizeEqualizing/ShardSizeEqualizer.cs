@@ -15,7 +15,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IReadOnlyList<Bound> _movingBounds;
-		
+
 		public ShardSizeEqualizer(IReadOnlyCollection<Shard> shards,
 			IReadOnlyDictionary<ShardIdentity, CollStats> collStatsByShards,
 			IReadOnlyList<TagRange> tagRanges,
@@ -28,9 +28,9 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			{
 				return collStatsByShards.TryGetValue(shard, out var stats) ? stats.Size : 0;
 			}
-			
+
 			Zones = tagRanges
-				.Select(r => new { tagRange = r, shardId = shards.Single(s => s.Tags.Contains(r.Tag)).Id})
+				.Select(r => new { tagRange = r, shardId = SelectOnlyOneShardByTag(shards, r.Tag).Id})
 				.Select(i => new Zone(i.shardId, i.tagRange, sizeByShard(i.shardId), targetSize[i.tagRange.Tag]))
 				.ToList();
 
@@ -38,7 +38,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			if (leftFixedBound.RightChunk == null)
 				throw new Exception($"First chunk not found by first bound of tags");
 			Zones.First().Left = leftFixedBound;
-			
+
 			var rightFixedBound = new Bound(this, chunks, tagRanges.Last().Max);
 			if(rightFixedBound.LeftChunk == null)
 				throw new Exception($"Last chunk not found by last bound of tags");
@@ -53,13 +53,34 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				Zones[zoneIndex + 1].Left = bound;
 				zoneIndex++;
 			}
-			
+
 			long toRight = 0;
 			foreach (var bound in _movingBounds)
 			{
 				toRight += bound.LeftZone.TargetSize - bound.LeftZone.CurrentSize;
 				bound.RequireShiftSize = toRight;
 			}
+		}
+
+		private static Shard SelectOnlyOneShardByTag(IReadOnlyCollection<Shard> shards, TagIdentity tag)
+		{
+			using var e = shards.GetEnumerator();
+			while (e.MoveNext())
+			{
+				var result = e.Current;
+				if (result.Tags.Contains(tag))
+				{
+					while (e.MoveNext())
+					{
+						if (e.Current.Tags.Contains(tag))
+							throw new Exception($"shard '{result.Id}' and '{e.Current.Id}' both contains one tag '{tag}'");
+					}
+
+					return result;
+				}
+			}
+
+			throw new Exception($"no shard was found containing the tag '{tag}'");
 		}
 
 		public IReadOnlyList<Zone> Zones { get; }
@@ -73,17 +94,17 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				return maxSize - minSize;
 			}
 		}
-		
+
 		public long MovedSize => _movingBounds.Sum(_ => Math.Abs(_.ShiftSize));
 
 		public long RequireMoveSize => _movingBounds.Sum(_ => Math.Abs(_.RequireShiftSize));
-		
+
 		public long ElapsedShiftSize => _movingBounds.Sum(_ => Math.Abs(_.ElapsedShiftSize));
 
 		public string RenderState()
 		{
 			var sb = new StringBuilder($"[{_movingBounds.First().LeftZone.Main}]");
-			
+
 			foreach (var bound in _movingBounds)
 			{
 				var shiftSize = bound.ShiftSize;
@@ -104,7 +125,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 
 			return sb.ToString();
 		}
-		
+
 		public async Task<bool> Equalize()
 		{
 			foreach (var bound in _movingBounds.OrderByDescending(b => b.ElapsedShiftSize))
@@ -117,7 +138,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 		private static void continuityCheck(IReadOnlyCollection<TagRange> tagRanges)
 		{
 			var nextBound = tagRanges.First().Max;
-			
+
 			foreach (var range in tagRanges.Skip(1))
 			{
 				if (range.Min != nextBound)

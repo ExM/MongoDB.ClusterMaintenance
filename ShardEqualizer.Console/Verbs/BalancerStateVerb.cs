@@ -6,7 +6,7 @@ using ShardEqualizer.Operations;
 
 namespace ShardEqualizer.Verbs
 {
-	[Verb("balanser", HelpText = "Show state of shards balancer and the end of the movement of shards")]
+	[Verb("balancer", HelpText = "Show state of shards balancer and the end of the movement of shards")]
 	public class BalancerStateVerb: BaseVerbose
 	{
 		public override async Task RunOperation(IKernel kernel, CancellationToken token)

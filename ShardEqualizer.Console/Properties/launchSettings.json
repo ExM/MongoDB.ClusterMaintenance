@@ -1,8 +1,40 @@
 {
   "profiles": {
+    "help": {
+      "commandName": "Project",
+      "commandLineArgs": "help"
+    },
+    "version": {
+      "commandName": "Project",
+      "commandLineArgs": "version"
+    },
+    "findNewCollections": {
+      "commandName": "Project",
+      "commandLineArgs": "findNewCollections"
+    },
     "deviation": {
       "commandName": "Project",
       "commandLineArgs": "deviation -sG --format=md --layouts=\"base,balance\""
+    },
+    "scanJumbo": {
+      "commandName": "Project",
+      "commandLineArgs": "scanJumbo"
+    },
+    "equalize planOnly": {
+      "commandName": "Project",
+      "commandLineArgs": "equalize --planOnly"
+    },
+    "merge": {
+      "commandName": "Project",
+      "commandLineArgs": "merge"
+    },
+    "presplit": {
+      "commandName": "Project",
+      "commandLineArgs": "presplit"
+    },
+    "balancer": {
+      "commandName": "Project",
+      "commandLineArgs": "balancer"
     }
   }
 }

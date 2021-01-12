@@ -169,7 +169,7 @@ namespace ShardEqualizer
 
 			var settings = MongoClientSettings.FromUrl(urlBuilder.ToMongoUrl());
 			settings.ClusterConfigurator += CommandLogger.Subscriber;
-			settings.ReadPreference = ReadPreference.Primary;
+			settings.ReadPreference = ReadPreference.Secondary;
 			settings.MinConnectionPoolSize = 32;
 			return new MongoClient(settings);
 		}

@@ -8,7 +8,7 @@ namespace ShardEqualizer.Config
 		[DataMember(Name = "nameSpace")]
 		public string Namespace { get; set; }
 
-		[DataMember(Name = "minBounds")]
+		[DataMember(Name = "minBound")]
 		public string MinBound { get; set; }
 
 		[DataMember(Name = "maxBound")]
