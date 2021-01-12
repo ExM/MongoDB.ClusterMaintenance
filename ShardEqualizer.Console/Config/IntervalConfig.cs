@@ -8,8 +8,11 @@ namespace ShardEqualizer.Config
 		[DataMember(Name = "nameSpace")]
 		public string Namespace { get; set; }
 
-		[DataMember(Name = "bounds")]
-		public string Bounds { get; set; }
+		[DataMember(Name = "minBounds")]
+		public string MinBound { get; set; }
+
+		[DataMember(Name = "maxBound")]
+		public string MaxBound { get; set; }
 
 		[DataMember(Name = "zones")]
 		public string Zones { get; set; }
@@ -19,7 +22,7 @@ namespace ShardEqualizer.Config
 
 		[DataMember(Name = "correction")]
 		public CorrectionMode? Correction { get; private set; }
-		
+
 		[DataMember(Name = "Priority")]
 		public double? Priority { get; private set;}
 	}

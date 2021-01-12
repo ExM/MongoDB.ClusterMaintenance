@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using MongoDB.Bson;
+using MongoDB.Bson.IO;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Serializers;
@@ -7,11 +9,11 @@ using MongoDB.Bson.Serialization.Serializers;
 namespace ShardEqualizer.Models
 {
 	[BsonSerializer(typeof(Serializer))]
-	public struct BsonBound: IEquatable<BsonBound>, IComparable<BsonBound>
+	public readonly struct BsonBound: IEquatable<BsonBound>, IComparable<BsonBound>
 	{
-		public BsonBound(BsonDocument id)
+		public BsonBound(BsonDocument value)
 		{
-			_value = id ?? throw new ArgumentNullException(nameof(id));
+			_value = value ?? throw new ArgumentNullException(nameof(value));
 		}
 
 		private readonly BsonDocument _value;
@@ -50,7 +52,7 @@ namespace ShardEqualizer.Models
 		{
 			return _value.CompareTo(other._value);
 		}
-		
+
 		public static bool operator >(BsonBound x, BsonBound y)
 		{
 			return x.CompareTo(y) > 0;
@@ -60,7 +62,7 @@ namespace ShardEqualizer.Models
 		{
 			return x.CompareTo(y) < 0;
 		}
-		
+
 		public static bool operator >=(BsonBound x, BsonBound y)
 		{
 			return x.CompareTo(y) >= 0;
@@ -85,7 +87,7 @@ namespace ShardEqualizer.Models
 		{
 			private static readonly BsonDocumentSerializer _serializer = new BsonDocumentSerializer();
 
-			private static readonly BsonDeserializationArgs _deserializationArgs = 
+			private static readonly BsonDeserializationArgs _deserializationArgs =
 				new BsonDeserializationArgs()
 				{
 					NominalType = typeof(BsonDocument)
@@ -98,7 +100,7 @@ namespace ShardEqualizer.Models
 					SerializeIdFirst = true,
 					SerializeAsNominalType = true
 				};
-			
+
 			public override BsonBound Deserialize(BsonDeserializationContext context, BsonDeserializationArgs args)
 			{
 				var doc = _serializer.Deserialize(context, _deserializationArgs);
@@ -109,6 +111,28 @@ namespace ShardEqualizer.Models
 			{
 				_serializer.Serialize(context, _serializationArgs, value._value);
 			}
+		}
+
+		public static BsonBound Parse(string text)
+		{
+			var result = TryParse(text);
+			if (result == null)
+				throw new FormatException($"text '{text}' does not contain the correct BSON bound value");
+
+			return result.Value;
+		}
+
+		public static BsonBound? TryParse(string text)
+		{
+			if(string.IsNullOrWhiteSpace(text))
+				return null;
+
+			using var jsonReader = new JsonReader(text);
+
+			var bsonDocument = BsonDocumentSerializer.Instance.Deserialize(BsonDeserializationContext.CreateRoot(jsonReader));
+			if (!jsonReader.IsAtEndOfFile())
+				throw new FormatException("String contains extra non-whitespace characters beyond the end of the document.");
+			return new BsonBound(bsonDocument);
 		}
 	}
 }

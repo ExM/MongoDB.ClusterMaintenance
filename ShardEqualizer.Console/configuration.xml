@@ -1,8 +1,6 @@
 <Configuration>
 	<IncludeXmlFile path='etc/ShardEqualizer/local.config' search='all' include='all' required='true'/>
-	
-	<BoundsFile path='bounds.json'/>
-	
+
 	<DeviationLayouts>
 		<!-- default layout: TtSz TtSt TtIs TtSzD TtStD TtIsD UsSz UsSt UsIs ShSz ShSt ShIs -->
 		<Layout Name="base" Title="Base report" Columns="TtSz TtSt TtIs TtSzD TtStD TtIsD UsSz UsSt UsIs ShSz ShSt ShIs"/>
@@ -13,11 +11,13 @@
 	<!-- sample of interval configuration
 	<Interval
 		nameSpace="database1.collection1"
-		bounds="gridFS_invObjectId"
 		preSplit="auto|interval|chunk"
 		correction="none|self|unShard"
 		priority="1"
-		zones="A,B,C,D" />
+		zones="A,B,C,D">
+		<MinBound>{ "_id" : CSUUID("00000000-0000-0000-0000-000000000000") }</MinBound>
+		<MaxBound>{ "_id" : CSUUID("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF") }</MaxBound>
+	</Interval>
 	-->
 	<!-- sample of connection configuration
 	<Connection Server="localhost" User="user" Password="pass" />

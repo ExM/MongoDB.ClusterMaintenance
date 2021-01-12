@@ -1,8 +1,8 @@
 {
   "profiles": {
-    "MongoDB.ClusterMaintenance.Console": {
+    "deviation": {
       "commandName": "Project",
-      "commandLineArgs": "scan -u reader -p LkcjY3f21W -h mdb-uniform.sc-eu.local -d smartcat -c AsyncTasks.ExportDocumentTasks.Results.chunks --sizes 1K,10K,500K,1M,60M,65M"
+      "commandLineArgs": "deviation -sG --format=md --layouts=\"base,balance\""
     }
   }
 }

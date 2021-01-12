@@ -23,7 +23,7 @@ namespace ShardEqualizer
 			Max = max;
 		}
 
-		public Interval(IntervalConfig config, BsonDocument bounds)
+		public Interval(IntervalConfig config)
 		{
 			Selected = true;
 			Namespace = CollectionNamespace.FromFullName(config.Namespace);;
@@ -32,12 +32,8 @@ namespace ShardEqualizer
 			Correction = config.Correction ?? CorrectionMode.UnShard;
 			Priority = config.Priority ?? 1;
 
-			if (!string.IsNullOrWhiteSpace(config.Bounds))
-			{
-				var b = bounds[config.Bounds];
-				Min = (BsonBound)b["min"].AsBsonDocument;
-				Max = (BsonBound)b["max"].AsBsonDocument;
-			}
+			Min = string.IsNullOrWhiteSpace(config.MinBound) ? null : (BsonBound?)BsonBound.Parse(config.MinBound);
+			Max = string.IsNullOrWhiteSpace(config.MaxBound) ? null : (BsonBound?)BsonBound.Parse(config.MaxBound);
 		}
 
 		public CollectionNamespace Namespace { get; }

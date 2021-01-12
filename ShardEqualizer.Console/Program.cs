@@ -26,7 +26,7 @@ namespace ShardEqualizer
 	internal static class Program
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-		
+
 		static int Main(string[] args)
 		{
 			var cts = new CancellationTokenSource();
@@ -37,7 +37,7 @@ namespace ShardEqualizer
 				eventArgs.Cancel = true;
 				_log.Warn("cancel operation requested...");
 			};
-			
+
 			var parsed = Parser.Default.ParseArguments<
 				FindNewCollectionsVerb,
 				ScanChunksVerb,
@@ -58,12 +58,12 @@ namespace ShardEqualizer
 				var kernel = new StandardKernel(new NinjectSettings() { LoadExtensions = false });
 				kernel.Load<Module>();
 				BindConfiguration(verbose, kernel);
-			
+
 				var result = ProcessVerbAndReturnExitCode(t => verbose.RunOperation(kernel, t), cts.Token).Result;
 
 				foreach(var item in kernel.GetAll<IDisposable>())
 					item.Dispose();
-				
+
 				return result;
 			}
 			catch (Exception e)
@@ -78,7 +78,7 @@ namespace ShardEqualizer
 				LogManager.Flush();
 			}
 		}
-		
+
 		private static IAppSettings loadConfiguration(string configFile)
 		{
 			var storage = new VariableStorage();
@@ -91,23 +91,20 @@ namespace ShardEqualizer
 		public static void BindConfiguration(BaseVerbose verbose, IKernel kernel)
 		{
 			var appSettings = loadConfiguration(verbose.ConfigFile);
-			
+
 			var connectionConfig = appSettings.Get<Connection>();
 			kernel.Bind<IMongoClient>().ToMethod(_ => createClient(connectionConfig)).InSingletonScope();
 
-			var boundsFileConfig = appSettings.Get<BoundsFile>();
-			var bounds = readBoundsFile(boundsFileConfig.Path);
-
 			var intervalConfigs = loadIntervalConfigurations(appSettings);
-			var intervals = intervalConfigs.Select(_ => new Interval(_, bounds)).ToList().AsReadOnly();
-			
+			var intervals = intervalConfigs.Select(_ => new Interval(_)).ToList().AsReadOnly();
+
 			if (verbose.Database != null)
 				foreach (var interval in intervals)
 				{
 					if (!interval.Namespace.DatabaseNamespace.DatabaseName.Equals(verbose.Database, StringComparison.Ordinal))
 						interval.Selected = false;
 				}
-			
+
 			if(verbose.Collection != null)
 				foreach (var interval in intervals)
 				{
@@ -117,18 +114,18 @@ namespace ShardEqualizer
 
 			if (intervals.Count == 0)
 				throw new ArgumentException("interval list is empty");
-			
+
 			kernel.Bind<IReadOnlyList<Interval>>().ToConstant(intervals);
 
 			var debugDumpConfig = appSettings.TryGet<DebugDump>();
 			kernel.Bind<DebugDirectory>().ToSelf().WithConstructorArgument(debugDumpConfig);
-			
+
 			kernel.Bind<LayoutStore>()
 				.ToMethod(ctx => new LayoutStore(appSettings.TryGet<DeviationLayoutsConfig>().Layouts))
 				.InSingletonScope();
 		}
-		
-		
+
+
 
 		private static IEnumerable<IntervalConfig> loadIntervalConfigurations(IAppSettings settings)
 		{
@@ -142,36 +139,18 @@ namespace ShardEqualizer
 					var sumItem = cfgItem.Current;
 					while (cfgItem.MoveNext())
 						sumItem = settings.Combine(sumItem, cfgItem.Current);
-					
+
 					nsMap.Add(g.Key, sumItem);
 				}
 			}
 
 			if (!nsMap.TryGetValue("default", out var defaultItem))
 				return nsMap.Values;
-			
+
 			nsMap.Remove("default");
 			return nsMap.Values.Select(_ => settings.Combine(defaultItem, _));
 		}
-		
-		public static BsonDocument readBoundsFile(string path)
-		{
-			if(string.IsNullOrWhiteSpace(path))
-				return new BsonDocument();
-			
-			var jsonReaderSettings = new JsonReaderSettings()
-				{GuidRepresentation = GuidRepresentation.Unspecified};
-			
-			using(var textReader = File.OpenText(path))
-			using (var jsonReader = new JsonReader(textReader, jsonReaderSettings))
-			{
-				var bsonDocument = BsonDocumentSerializer.Instance.Deserialize(BsonDeserializationContext.CreateRoot(jsonReader));
-				if (!jsonReader.IsAtEndOfFile())
-					throw new FormatException("String contains extra non-whitespace characters beyond the end of the document.");
-				return bsonDocument;
-			}
-		}
-		
+
 		private static IMongoClient createClient(Connection connectionConfig)
 		{
 			_log.Info("Connecting to {0}", string.Join(",", connectionConfig.Servers));
@@ -187,14 +166,14 @@ namespace ShardEqualizer
 				urlBuilder.Username = connectionConfig.User;
 				urlBuilder.Password = connectionConfig.Password;
 			}
-			
+
 			var settings = MongoClientSettings.FromUrl(urlBuilder.ToMongoUrl());
 			settings.ClusterConfigurator += CommandLogger.Subscriber;
 			settings.ReadPreference = ReadPreference.Primary;
 			settings.MinConnectionPoolSize = 32;
 			return new MongoClient(settings);
 		}
-		
+
 		private static async Task<int> ProcessVerbAndReturnExitCode(Func<CancellationToken, Task> action, CancellationToken token)
 		{
 			try
@@ -210,7 +189,7 @@ namespace ShardEqualizer
 					Console.Error.WriteLine();
 					Console.Error.WriteLine(e.Message);
 				}
-				
+
 				return 1;
 			}
 			finally
