@@ -16,20 +16,23 @@ namespace ShardEqualizer.Operations
 	{
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
-		private readonly List<Interval> _selectedIntervals;
+		private readonly IReadOnlyList<Interval> _intervals;
 		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _collectionsInfo;
 		private List<Chunk> _jumboChunks;
 		private ConcurrentBag<ChunkDataSize> _chunkDataSizes = new ConcurrentBag<ChunkDataSize>();
 		private int _dataSizeCommandErrors = 0;
-		
+
 		public ScanJumboChunksOperation(IReadOnlyList<Interval> intervals, IConfigDbRepositoryProvider configDb, IMongoClient mongoClient)
 		{
 			_configDb = configDb;
 			_mongoClient = mongoClient;
-			
-			_selectedIntervals = intervals.Where(_ => _.Selected).ToList();
+
+			if (intervals.Count == 0)
+				throw new ArgumentException("interval list is empty");
+
+			_intervals = intervals;
 		}
-		
+
 		private ObservableTask loadCollectionsInfo(CancellationToken token)
 		{
 			async Task<ShardedCollectionInfo> loadCollectionInfo(Interval interval, CancellationToken t)
@@ -39,15 +42,15 @@ namespace ShardEqualizer.Operations
 					throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
 				return collInfo;
 			}
-			
+
 			return ObservableTask.WithParallels(
-				_selectedIntervals, 
-				8, 
+				_intervals,
+				8,
 				loadCollectionInfo,
 				allCollectionsInfo => { _collectionsInfo = allCollectionsInfo.ToDictionary(_ => _.Id); },
 				token);
 		}
-		
+
 		private ObservableTask findJumboChunks(CancellationToken token)
 		{
 			async Task<List<Chunk>> loadCollChunks(Interval interval, CancellationToken t)
@@ -62,13 +65,13 @@ namespace ShardEqualizer.Operations
 			}
 
 			return ObservableTask.WithParallels(
-				_selectedIntervals, 
-				8, 
+				_intervals,
+				8,
 				loadCollChunks,
 				chunks => {  _jumboChunks = chunks.SelectMany(_ => _).ToList(); },
 				token);
 		}
-		
+
 		private ObservableTask scanJumboChunks(CancellationToken token)
 		{
 			async Task scanChunk(Chunk chunk, CancellationToken t)
@@ -91,15 +94,15 @@ namespace ShardEqualizer.Operations
 			}
 
 			return ObservableTask.WithParallels(
-				_jumboChunks, 
-				32, 
+				_jumboChunks,
+				32,
 				scanChunk,
 				token);
 		}
-		
+
 		private static readonly List<double> _percentiles = new List<double>()
 			{ 0, .50, .75, .90, .95, .99, 1};
-		
+
 		private static readonly List<string> _percentileName = new List<string>()
 			{ "min", "50", "75", "90", "95", "99", "max"};
 
@@ -121,7 +124,7 @@ namespace ShardEqualizer.Operations
 				Console.WriteLine(" * {0} - count: {1}, empty: {2}", nsGroup.Key, group.Count, group.Count(_ => _.Size == 0));
 				renderPercentiles(group.Select(_ => _.Size));
 			}
-			
+
 			Console.WriteLine();
 			Console.WriteLine("By shards:");
 			foreach (var shardGroup in _chunkDataSizes.GroupBy(_ => _.Shard))
@@ -130,7 +133,7 @@ namespace ShardEqualizer.Operations
 				Console.WriteLine(" * {0} - count: {1}, empty: {2}", shardGroup.Key, group.Count, group.Count(_ => _.Size == 0));
 				renderPercentiles(group.Select(_ => _.Size));
 			}
-			
+
 			Console.WriteLine();
 			Console.WriteLine("Total - count: {0}, empty: {1}", _chunkDataSizes.Count, _chunkDataSizes.Count(_ => _.Size == 0));
 			renderPercentiles(_chunkDataSizes.Select(_ => _.Size));

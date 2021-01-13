@@ -1,5 +1,4 @@
 <Configuration>
-	<IncludeXmlFile path='etc/ShardEqualizer/local.config' search='all' include='all' required='true'/>
 
 	<DeviationLayouts>
 		<!-- default layout: TtSz TtSt TtIs TtSzD TtStD TtIsD UsSz UsSt UsIs ShSz ShSt ShIs -->
@@ -8,18 +7,29 @@
 	</DeviationLayouts>
 
 	<!-- DebugDump path='debug'/-->
-	<!-- sample of interval configuration
-	<Interval
-		nameSpace="database1.collection1"
-		preSplit="auto|interval|chunk"
-		correction="none|self|unShard"
-		priority="1"
-		zones="A,B,C,D">
-		<MinBound>{ "_id" : CSUUID("00000000-0000-0000-0000-000000000000") }</MinBound>
-		<MaxBound>{ "_id" : CSUUID("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF") }</MaxBound>
-	</Interval>
+	<!-- sample of configuration
+
+	<Clusters Default="MyCluster">
+		<MyCluster Servers="localhost" User="user" Password="pass" zones="A,B,C,D" >
+			<Interval
+				nameSpace="database1.collection1"
+				preSplit="auto|interval|chunk"
+				correction="none|self|unShard"
+				priority="1"
+				zones="B,C,D">
+				<MinBound>{ "_id" : CSUUID("00000000-0000-0000-0000-000000000000") }</MinBound>
+				<MaxBound>{ "_id" : CSUUID("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF") }</MaxBound>
+			</Interval>
+		</MyCluster>
+	</Clusters>
+
 	-->
-	<!-- sample of connection configuration
-	<Connection Server="localhost" User="user" Password="pass" />
-	-->
+
+	<Clusters Default="LocalDemo">
+		<LocalDemo Servers="localhost" zones="A,B,C" >
+
+		</LocalDemo>
+	</Clusters>
+
+	<IncludeXmlFile path='etc/ShardEqualizer/local.config' search='all' include='all' required='true'/>
 </Configuration>

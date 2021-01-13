@@ -18,7 +18,7 @@ namespace ShardEqualizer.Operations
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly bool _renew;
 		private readonly IConfigDbRepositoryProvider _configDb;
-			
+
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		public PresplitDataOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals, CommandPlanWriter commandPlanWriter, bool renew)
@@ -27,11 +27,16 @@ namespace ShardEqualizer.Operations
 			_intervals = intervals;
 			_commandPlanWriter = commandPlanWriter;
 			_renew = renew;
+
+			if (intervals.Count == 0)
+				throw new ArgumentException("interval list is empty");
+
+			_intervals = intervals;
 		}
-		
+
 		private async Task createPresplitCommandForInterval(Interval interval, CancellationToken token)
 		{
-			
+
 			var preSplit = interval.PreSplit;
 
 			if (preSplit == PreSplitMode.Auto)
@@ -46,13 +51,13 @@ namespace ShardEqualizer.Operations
 					preSplit = totalChunks / interval.Zones.Count < 100
 						? PreSplitMode.Interval
 						: PreSplitMode.Chunks;
-						
+
 					_log.Info("detect presplit mode of {0} with total chunks {1}", interval.Namespace.FullName, totalChunks);
 				}
 				else
 				{
 					preSplit = PreSplitMode.Chunks;
-						
+
 					_log.Info("detect presplit mode of {0} without bounds", interval.Namespace.FullName);
 				}
 			}
@@ -94,12 +99,12 @@ namespace ShardEqualizer.Operations
 				}
 			}
 		}
-		
+
 		private ObservableTask createPresplitCommands(CancellationToken token)
 		{
 			return ObservableTask.WithParallels(
-				_intervals.Where(_ => _.Selected).ToList(), 
-				16, 
+				_intervals,
+				16,
 				createPresplitCommandForInterval,
 				token);
 		}
@@ -140,10 +145,10 @@ namespace ShardEqualizer.Operations
 
 			if (collInfo == null)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
-			
+
 			if(interval.Min == null || interval.Max == null)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} - bounds not found in configuration");
-			
+
 			var internalBounds = BsonSplitter.SplitFirstValue(interval.Min.Value, interval.Max.Value, interval.Zones.Count)
 				.ToList();
 
@@ -158,11 +163,11 @@ namespace ShardEqualizer.Operations
 			{
 				var zoneName = interval.Zones[zoneIndex];
 				zoneIndex++;
-				
+
 				buffer.AddTagRange(range.min, range.max, zoneName);
 			}
 		}
-		
+
 		private async Task distributeCollection(Interval interval, TagRangeCommandBuffer buffer,
 			CancellationToken token)
 		{
@@ -177,10 +182,10 @@ namespace ShardEqualizer.Operations
 				.To(interval.Max);
 
 			var chunks = await (await filtered.Find()).ToListAsync(token);
-			
+
 			if(chunks.Count < interval.Zones.Count)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} does not contain enough chunks");
-			
+
 			var parts = chunks.Split(interval.Zones.Count).Select((items, order) => new {Items = items, Order = order}).ToList();
 			foreach (var part in parts)
 			{
@@ -191,10 +196,10 @@ namespace ShardEqualizer.Operations
 
 				if (part.Order == 0 && interval.Min.HasValue)
 					minBound = interval.Min.Value;
-				
+
 				if (part.Order == interval.Zones.Count - 1 && interval.Max.HasValue)
 					maxBound = interval.Max.Value;
-				
+
 				buffer.AddTagRange(minBound, maxBound, zoneName);
 			}
 		}

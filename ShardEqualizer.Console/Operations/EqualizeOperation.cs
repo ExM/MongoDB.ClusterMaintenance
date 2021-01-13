@@ -31,18 +31,22 @@ namespace ShardEqualizer.Operations
 			IMongoClient mongoClient, CommandPlanWriter commandPlanWriter, long? moveLimit, DebugDirectory debugDirectory, bool planOnly)
 		{
 			_configDb = configDb;
-			_intervals = intervals;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
 			_moveLimit = moveLimit;
 			_debugDirectory = debugDirectory;
 			_planOnly = planOnly;
+
+			if (intervals.Count == 0)
+				throw new ArgumentException("interval list is empty");
+
+			_intervals = intervals;
 		}
 
 		private IReadOnlyCollection<Shard> _shards;
 		private long _chunkSize;
-		private IList<string> _userDatabases;
-		private IList<CollectionNamespace> _allCollectionNames;
+		private IReadOnlyCollection<string> _userDatabases;
+		private IReadOnlyCollection<CollectionNamespace> _allCollectionNames;
 		private Dictionary<CollectionNamespace, CollStatsResult> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
 		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
@@ -117,7 +121,7 @@ namespace ShardEqualizer.Operations
 			}
 
 			return ObservableTask.WithParallels(
-				_intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None).ToList(),
+				_intervals.Where(_ => _.Correction != CorrectionMode.None).ToList(),
 				16,
 				loadTagRanges,
 				allTagRanges => { _tagRangesByNs = allTagRanges.ToDictionary(_ => _.First().Namespace, _ => _); },
@@ -132,7 +136,7 @@ namespace ShardEqualizer.Operations
 			}
 
 			return ObservableTask.WithParallels(
-				_intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None).Select(_ => _.Namespace).ToList(),
+				_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_ => _.Namespace).ToList(),
 				16,
 				loadShardedCollectionInfo,
 				allShardedCollectionInfo => { _shardedCollectionInfoByNs = allShardedCollectionInfo.ToDictionary(_ => _.Id); },
@@ -267,7 +271,7 @@ namespace ShardEqualizer.Operations
 
 			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
 
-			foreach (var interval in _intervals.Where(_ => _.Selected).Where(_ => _.Correction != CorrectionMode.None))
+			foreach (var interval in _intervals.Where(_ => _.Correction != CorrectionMode.None))
 			{
 				var targetSizes = interval.Zones.ToDictionary(
 					t => t,

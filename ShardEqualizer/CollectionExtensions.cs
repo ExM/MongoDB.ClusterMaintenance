@@ -29,7 +29,7 @@ namespace ShardEqualizer
 
 			return result;
 		}
-		
+
 		public static IEnumerable<List<T>> Split<T>(this List<T> items, int partCount)
 		{
 			var partSize = items.Count / partCount;
@@ -43,13 +43,14 @@ namespace ShardEqualizer
 					currentPartSize++;
 					extra--;
 				}
-				
+
 				yield return items.Skip(offset).Take(currentPartSize).ToList();
 				offset += currentPartSize;
 			}
 		}
-		
-		public static async Task<IReadOnlyList<R>> ParallelsAsync<S, R>(this IList<S> sourceList, Func<S, CancellationToken, Task<R>> actionTask, int maxParallelizm, CancellationToken token)
+
+		public static async Task<IReadOnlyList<R>> ParallelsAsync<S, R>(this IReadOnlyCollection<S> sourceList,
+			Func<S, CancellationToken, Task<R>> actionTask, int maxParallelizm, CancellationToken token)
 		{
 			var collTasks = new List<Task<R>>(sourceList.Count);
 			var throttler = new SemaphoreSlim(maxParallelizm);
@@ -74,8 +75,8 @@ namespace ShardEqualizer
 
 			return await Task.WhenAll(collTasks);
 		}
-		
-		public static async Task ParallelsAsync<S>(this IList<S> sourceList, Func<S, CancellationToken, Task> actionTask, int maxParallelizm, CancellationToken token)
+
+		public static async Task ParallelsAsync<S>(this IReadOnlyCollection<S> sourceList, Func<S, CancellationToken, Task> actionTask, int maxParallelizm, CancellationToken token)
 		{
 			var collTasks = new List<Task>(sourceList.Count);
 			var throttler = new SemaphoreSlim(maxParallelizm);

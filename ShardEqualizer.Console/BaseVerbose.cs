@@ -9,12 +9,9 @@ namespace ShardEqualizer
 	{
 		[Option('f', "config", Required = false, HelpText = "configuration file", Default = "configuration.xml")]
 		public string ConfigFile { get; set; }
-		
-		[Option('d', "database", Required = false, HelpText = "database")]
-		public string Database { get; set; }
-		
-		[Option('c', "collection", Required = false,  HelpText = "collection")]
-		public string Collection { get; set; }
+
+		[Option('c', "clusterName", Required = false,  HelpText = "selected cluster name in configuration file")]
+		public string ClusterName { get; set; }
 
 		public abstract Task RunOperation(IKernel kernel, CancellationToken token);
 	}

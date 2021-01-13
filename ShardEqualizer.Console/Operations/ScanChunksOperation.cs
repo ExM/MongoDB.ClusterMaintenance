@@ -21,7 +21,7 @@ namespace ShardEqualizer.Operations
 		private readonly IMongoClient _mongoClient;
 		private readonly List<long> _sizeBounds;
 		private readonly IEnumerable<string> _headers;
-		private readonly List<Interval> _selectedIntervals;
+		private readonly IReadOnlyList<Interval> _intervals;
 		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _collectionsInfo;
 		private int _totalChunks;
 		private Dictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
@@ -30,13 +30,16 @@ namespace ShardEqualizer.Operations
 		{
 			_configDb = configDb;
 			_mongoClient = mongoClient;
-			
+
 			_sizeBounds = sizeLabels.Select(BinaryPrefix.Parse).ToList();
 			_headers = new [] {"shard", "jumbo", "empty"}.Concat(sizeLabels).Concat(new [] {"Max"});
 
-			_selectedIntervals = intervals.Where(_ => _.Selected).ToList();
+			if (intervals.Count == 0)
+				throw new ArgumentException("interval list is empty");
+
+			_intervals = intervals;
 		}
-		
+
 		private ObservableTask loadCollectionsInfo(CancellationToken token)
 		{
 			async Task<ShardedCollectionInfo> loadCollectionInfo(Interval interval, CancellationToken t)
@@ -46,15 +49,15 @@ namespace ShardEqualizer.Operations
 					throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
 				return collInfo;
 			}
-			
+
 			return ObservableTask.WithParallels(
-				_selectedIntervals, 
-				8, 
+				_intervals,
+				8,
 				loadCollectionInfo,
 				allCollectionsInfo => { _collectionsInfo = allCollectionsInfo.ToDictionary(_ => _.Id); },
 				token);
 		}
-		
+
 		private ObservableTask loadAllCollChunks(CancellationToken token)
 		{
 			async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
@@ -69,8 +72,8 @@ namespace ShardEqualizer.Operations
 			}
 
 			return ObservableTask.WithParallels(
-				_selectedIntervals, 
-				8, 
+				_intervals,
+				8,
 				loadCollChunks,
 				chunksByNs => {  _chunksByCollection = chunksByNs.ToDictionary(_ => _.Item1, _ => _.Item2); },
 				token);
@@ -79,14 +82,14 @@ namespace ShardEqualizer.Operations
 		public async Task Run(CancellationToken token)
 		{
 			var scanList = new WorkList();
-			
-			foreach (var interval in _selectedIntervals)
+
+			foreach (var interval in _intervals)
 			{
 				scanList.Add(
 					$"Scan collection {interval.Namespace}",
 					new SingleWork(t => scanInterval(interval.Namespace, t)));
 			}
-		
+
 			var opList = new WorkList()
 			{
 				{ "Load collections info", new ObservableWork(loadCollectionsInfo)},
@@ -104,7 +107,7 @@ namespace ShardEqualizer.Operations
 			var chunks = _chunksByCollection[ns];
 
 			var chunkCountByShards = new ConcurrentDictionary<ShardIdentity, ChunkCounts>();
-			
+
 			var progressReporter = new TargetProgressReporter(0, chunks.Count);
 			var index = 0;
 			foreach (var chunk in chunks)
@@ -132,7 +135,7 @@ namespace ShardEqualizer.Operations
 			}
 
 			await progressReporter.Stop();
-			
+
 			token.ThrowIfCancellationRequested();
 
 			var sb = new StringBuilder();

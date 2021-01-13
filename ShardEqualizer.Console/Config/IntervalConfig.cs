@@ -18,12 +18,12 @@ namespace ShardEqualizer.Config
 		public string Zones { get; set; }
 
 		[DataMember(Name = "preSplit")]
-		public PreSplitMode? PreSplit { get; private set; }
+		public PreSplitMode? PreSplit { get; set; }
 
 		[DataMember(Name = "correction")]
-		public CorrectionMode? Correction { get; private set; }
+		public CorrectionMode? Correction { get; set; }
 
 		[DataMember(Name = "Priority")]
-		public double? Priority { get; private set;}
+		public double? Priority { get; set;}
 	}
 }

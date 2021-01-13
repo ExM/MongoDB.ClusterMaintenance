@@ -8,7 +8,7 @@ namespace ShardEqualizer
 {
 	public static class MongoClientExtensions
 	{
-		public static async Task<IList<string>> ListUserDatabases(this IMongoClient mongoClient, CancellationToken token)
+		public static async Task<IReadOnlyCollection<string>> ListUserDatabases(this IMongoClient mongoClient, CancellationToken token)
 		{
 			var allDatabaseNames = await mongoClient.ListDatabaseNames().ToListAsync(token);
 			return allDatabaseNames.Except(new[] {"admin", "config"}).ToList();

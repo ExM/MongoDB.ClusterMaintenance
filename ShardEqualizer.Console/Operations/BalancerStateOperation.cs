@@ -14,10 +14,10 @@ namespace ShardEqualizer.Operations
 	public class BalancerStateOperation: IOperation
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-		
+
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IReadOnlyList<Interval> _intervals;
-		
+
 		private IReadOnlyCollection<Shard> _shards;
 		private int _totalUnMovedChunks = 0;
 		private readonly ConcurrentBag<UnMovedChunk> _unMovedChunks = new ConcurrentBag<UnMovedChunk>();
@@ -27,13 +27,13 @@ namespace ShardEqualizer.Operations
 			_intervals = intervals;
 			_configDb = configDb;
 		}
-		
+
 		private async Task<string> loadShards(CancellationToken token)
 		{
 			_shards = await _configDb.Shards.GetAll();
 			return $"found {_shards.Count} shards.";
 		}
-		
+
 		private async Task<int> scanInterval(Interval interval, CancellationToken token)
 		{
 			var currentTags = new HashSet<TagIdentity>(interval.Zones);
@@ -65,17 +65,17 @@ namespace ShardEqualizer.Operations
 
 			return intervalCount;
 		}
-		
+
 		private ObservableTask scanIntervals(CancellationToken token)
 		{
 			return ObservableTask.WithParallels(
-				_intervals.Where(_ => _.Selected).ToList(), 
-				16, 
+				_intervals.ToList(),
+				16,
 				scanInterval,
 				intervalCounts => { _totalUnMovedChunks = intervalCounts.Sum(); },
 				token);
 		}
-	
+
 		public async Task Run(CancellationToken token)
 		{
 			var opList = new WorkList()

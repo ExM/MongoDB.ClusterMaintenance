@@ -15,7 +15,7 @@ namespace ShardEqualizer.Operations
 	public class DeviationOperation: IOperation
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-		
+
 		private readonly IMongoClient _mongoClient;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ScaleSuffix _scaleSuffix;
@@ -30,31 +30,31 @@ namespace ShardEqualizer.Operations
 			_reportFormat = reportFormat;
 			_layouts = layouts;
 		}
-		
-		private IList<string> _userDatabases;
-		private IList<CollectionNamespace> _allCollectionNames;
+
+		private IReadOnlyCollection<string> _userDatabases;
+		private IReadOnlyCollection<CollectionNamespace> _allCollectionNames;
 		private IReadOnlyList<CollStatsResult> _allCollStats;
 
 		private async Task loadUserDatabases(CancellationToken token)
 		{
 			_userDatabases = await _mongoClient.ListUserDatabases(token);
 		}
-		
+
 		private ObservableTask loadCollections(CancellationToken token)
 		{
 			async Task<IEnumerable<CollectionNamespace>> listCollectionNames(string dbName, CancellationToken t)
 			{
 				return await _mongoClient.GetDatabase(dbName).ListUserCollections(t);
 			}
-			
+
 			return ObservableTask.WithParallels(
-				_userDatabases, 
-				32, 
+				_userDatabases,
+				32,
 				listCollectionNames,
 				allCollectionNames => { _allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList(); },
 				token);
 		}
-		
+
 		private ObservableTask loadCollectionStatistics(CancellationToken token)
 		{
 			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
@@ -65,13 +65,13 @@ namespace ShardEqualizer.Operations
 			}
 
 			return ObservableTask.WithParallels(
-				_allCollectionNames, 
-				32, 
+				_allCollectionNames,
+				32,
 				runCollStats,
 				allCollStats => { _allCollStats = allCollStats; },
 				token);
 		}
-		
+
 		public async Task Run(CancellationToken token)
 		{
 			var opList = new WorkList()
@@ -82,7 +82,7 @@ namespace ShardEqualizer.Operations
 			};
 
 			await opList.Apply(token);
-			
+
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 
 			var report = createReport(sizeRenderer);
@@ -109,10 +109,10 @@ namespace ShardEqualizer.Operations
 			{
 				case ReportFormat.Csv:
 					return new CsvReport(sizeRenderer);
-				
+
 				case ReportFormat.Markdown:
 					return new MarkdownReport(sizeRenderer);
-				
+
 				default:
 					throw new ArgumentException($"unexpected report format: {_reportFormat}");
 			}
