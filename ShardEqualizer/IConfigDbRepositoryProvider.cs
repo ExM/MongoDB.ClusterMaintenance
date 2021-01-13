@@ -7,5 +7,6 @@ namespace ShardEqualizer
 		TagRangeRepository Tags { get; }
 		ShardRepository Shards { get; }
 		SettingsRepository Settings { get; }
+		VersionRepository Version { get; }
 	}
 }

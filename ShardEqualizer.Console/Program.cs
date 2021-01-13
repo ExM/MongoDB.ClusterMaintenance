@@ -27,7 +27,7 @@ namespace ShardEqualizer
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
-		static int Main(string[] args)
+		static async Task<int> Main(string[] args)
 		{
 			var cts = new CancellationTokenSource();
 
@@ -59,7 +59,9 @@ namespace ShardEqualizer
 				kernel.Load<Module>();
 				BindConfiguration(verbose, kernel);
 
-				var result = ProcessVerbAndReturnExitCode(t => verbose.RunOperation(kernel, t), cts.Token).Result;
+				await kernel.Get<ClusterIdValidator>().Validate();
+
+				var result = await ProcessVerbAndReturnExitCode(t => verbose.RunOperation(kernel, t), cts.Token);
 
 				foreach(var item in kernel.GetAll<IDisposable>())
 					item.Dispose();
@@ -94,7 +96,7 @@ namespace ShardEqualizer
 
 			var clusterConfig = loadClusterConfig(appSettings, verbose.ClusterName);
 
-			kernel.Bind<IMongoClient>().ToMethod(_ => createClient(clusterConfig)).InSingletonScope();
+			kernel.Bind<ClusterConfig>().ToConstant(clusterConfig);
 
 			var intervalConfigs = loadIntervalConfigurations(clusterConfig, appSettings);
 			var intervals = intervalConfigs.Select(_ => new Interval(_)).ToList().AsReadOnly();
@@ -128,29 +130,6 @@ namespace ShardEqualizer
 
 				yield return intervalConfig;
 			}
-		}
-
-		private static IMongoClient createClient(ClusterConfig clusterConfig)
-		{
-			_log.Info("Connecting to {0}", string.Join(",", clusterConfig.Servers));
-
-			var urlBuilder = new MongoUrlBuilder()
-			{
-				Servers = clusterConfig.Servers.Select(MongoServerAddress.Parse),
-			};
-
-			if(clusterConfig.IsRequireAuth)
-			{
-				urlBuilder.AuthenticationSource = "admin";
-				urlBuilder.Username = clusterConfig.User;
-				urlBuilder.Password = clusterConfig.Password;
-			}
-
-			var settings = MongoClientSettings.FromUrl(urlBuilder.ToMongoUrl());
-			settings.ClusterConfigurator += CommandLogger.Subscriber;
-			settings.ReadPreference = ReadPreference.SecondaryPreferred;
-			settings.MinConnectionPoolSize = 32;
-			return new MongoClient(settings);
 		}
 
 		private static async Task<int> ProcessVerbAndReturnExitCode(Func<CancellationToken, Task> action, CancellationToken token)
