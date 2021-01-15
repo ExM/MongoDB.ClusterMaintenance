@@ -43,7 +43,7 @@ namespace ShardEqualizer.Reporting
 			}
 			else
 			{
-				ensureRow(collStats.Primary).UnSharded.Add(collStats);
+				ensureRow(collStats.Primary.Value).UnSharded.Add(collStats);
 			}
 		}
 

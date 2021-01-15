@@ -9,13 +9,13 @@ namespace ShardEqualizer
 	public class CollStatOfAllUserCollectionsSource : IDataSource<CollStatOfAllUserCollections>
 	{
 		private readonly ProgressRenderer _progressRenderer;
-		private readonly IMongoClient _mongoClient;
+		private readonly CollectionStatisticService _collStatsService;
 		private readonly IDataSource<UserCollections> _sourceUserCollections;
 
-		public CollStatOfAllUserCollectionsSource(ProgressRenderer progressRenderer, IMongoClient mongoClient, IDataSource<UserCollections> sourceUserCollections)
+		public CollStatOfAllUserCollectionsSource(ProgressRenderer progressRenderer, CollectionStatisticService collStatsService, IDataSource<UserCollections> sourceUserCollections)
 		{
 			_progressRenderer = progressRenderer;
-			_mongoClient = mongoClient;
+			_collStatsService = collStatsService;
 			_sourceUserCollections = sourceUserCollections;
 		}
 
@@ -27,8 +27,7 @@ namespace ShardEqualizer
 
 			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
 			{
-				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-				var collStats = await db.CollStats(ns.CollectionName, 1, t);
+				var collStats = await _collStatsService.Get(ns, t);
 				reporter.Increment();
 				return collStats;
 			}

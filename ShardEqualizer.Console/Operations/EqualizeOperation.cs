@@ -142,7 +142,7 @@ namespace ShardEqualizer.Operations
 		{
 			var unShardedSizeMap = _collStatsMap.Values
 				.Where(_ => !_.Sharded)
-				.GroupBy(_ => _.Primary)
+				.GroupBy(_ => _.Primary.Value)
 				.ToDictionary(k => k.Key, g => g.Sum(_ => _.Size));
 
 			_zoneOpt = new ZoneOptimizationDescriptor(

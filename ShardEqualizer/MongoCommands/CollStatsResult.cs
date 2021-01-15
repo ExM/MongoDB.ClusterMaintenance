@@ -8,17 +8,17 @@ namespace ShardEqualizer.MongoCommands
 	public class CollStatsResult: CollStats
 	{
 		[BsonElement("primary"), BsonIgnoreIfNull]
-		public ShardIdentity Primary;
-		
+		public ShardIdentity? Primary;
+
 		[BsonElement("nchunks"), BsonIgnoreIfNull]
 		public long? NChunks;
-		
+
 		[BsonElement("sharded"), BsonRequired]
 		public bool Sharded;
-		
+
 		[BsonElement("shards"), BsonDictionaryOptions(DictionaryRepresentation.Document), BsonIgnoreIfNull]
 		public IReadOnlyDictionary<ShardIdentity, CollStats> Shards;
-		
+
 		//[BsonExtraElements]
 		//public BsonDocument ExtraElements;
 	}
