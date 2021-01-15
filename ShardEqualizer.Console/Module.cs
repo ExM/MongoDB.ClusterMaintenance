@@ -22,7 +22,7 @@ namespace ShardEqualizer
 
 			Bind<IDataSource<UserDatabases>>().To<UserDatabasesSource>().InSingletonScope();
 			Bind<IDataSource<UserCollections>>().To<UserCollectionsSource>().InSingletonScope();
-			Bind<IDataSource<CollStatOfUserCollections>>().To<CollStatOfUserCollectionsSource>().InSingletonScope();
+			Bind<IDataSource<CollStatOfAllUserCollections>>().To<CollStatOfAllUserCollectionsSource>().InSingletonScope();
 		}
 	}
 }

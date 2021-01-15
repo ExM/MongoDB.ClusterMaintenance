@@ -16,14 +16,14 @@ namespace ShardEqualizer.Operations
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
-		private readonly IDataSource<CollStatOfUserCollections> _collStatSource;
+		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ScaleSuffix _scaleSuffix;
 		private readonly ReportFormat _reportFormat;
 		private readonly List<LayoutDescription> _layouts;
 
 		public DeviationOperation(
-			IDataSource<CollStatOfUserCollections> collStatSource,
+			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			IReadOnlyList<Interval> intervals,
 			ScaleSuffix scaleSuffix,
 			ReportFormat reportFormat,

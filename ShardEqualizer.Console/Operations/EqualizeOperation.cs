@@ -20,7 +20,7 @@ namespace ShardEqualizer.Operations
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IReadOnlyList<Interval> _intervals;
-		private readonly IDataSource<CollStatOfUserCollections> _collStatSource;
+		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -29,7 +29,7 @@ namespace ShardEqualizer.Operations
 		private readonly bool _planOnly;
 
 		public EqualizeOperation(
-			IDataSource<CollStatOfUserCollections> collStatSource,
+			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,

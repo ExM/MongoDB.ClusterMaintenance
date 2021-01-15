@@ -97,8 +97,6 @@ namespace ShardEqualizer
 			var clusterConfig = loadClusterConfig(appSettings, verbose.ClusterName);
 
 			kernel.Bind<ClusterConfig>().ToConstant(clusterConfig);
-			//TODO
-			//kernel.Bind<LocalStoreConfig>().ToConstant(new LocalStoreConfig() { StoreName = verbose.StoreName, ResetStore = verbose.ResetStore});
 
 			var intervalConfigs = loadIntervalConfigurations(clusterConfig, appSettings);
 			var intervals = intervalConfigs.Select(_ => new Interval(_)).ToList().AsReadOnly();

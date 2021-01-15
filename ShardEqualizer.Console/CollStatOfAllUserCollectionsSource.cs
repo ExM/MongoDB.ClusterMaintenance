@@ -6,20 +6,20 @@ using ShardEqualizer.MongoCommands;
 
 namespace ShardEqualizer
 {
-	public class CollStatOfUserCollectionsSource : IDataSource<CollStatOfUserCollections>
+	public class CollStatOfAllUserCollectionsSource : IDataSource<CollStatOfAllUserCollections>
 	{
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly IMongoClient _mongoClient;
 		private readonly IDataSource<UserCollections> _sourceUserCollections;
 
-		public CollStatOfUserCollectionsSource(ProgressRenderer progressRenderer, IMongoClient mongoClient, IDataSource<UserCollections> sourceUserCollections)
+		public CollStatOfAllUserCollectionsSource(ProgressRenderer progressRenderer, IMongoClient mongoClient, IDataSource<UserCollections> sourceUserCollections)
 		{
 			_progressRenderer = progressRenderer;
 			_mongoClient = mongoClient;
 			_sourceUserCollections = sourceUserCollections;
 		}
 
-		public async Task<CollStatOfUserCollections> Get(CancellationToken token)
+		public async Task<CollStatOfAllUserCollections> Get(CancellationToken token)
 		{
 			var userCollections = await _sourceUserCollections.Get(token);
 
@@ -35,7 +35,7 @@ namespace ShardEqualizer
 
 			var allCollStats = await userCollections.ParallelsAsync(runCollStats, 32, token);
 
-			return new CollStatOfUserCollections(allCollStats.ToDictionary(_ => _.Ns));
+			return new CollStatOfAllUserCollections(allCollStats.ToDictionary(_ => _.Ns));
 		}
 	}
 }
