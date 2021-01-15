@@ -4,7 +4,13 @@ using System.Linq;
 
 namespace ShardEqualizer.UI
 {
-	public class ConsoleBookmark
+	public interface IConsoleBookmark
+	{
+		void Clear();
+		void Render(string line);
+	}
+
+	public class ConsoleBookmark: IConsoleBookmark
 	{
 		private readonly int _startTop;
 		private readonly int _startLeft;

@@ -14,7 +14,7 @@ namespace ShardEqualizer
 		private readonly object _sync = new object();
 		private readonly List<ProgressReporter> _reporters = new List<ProgressReporter>();
 		private readonly List<string> _logLines = new List<string>();
-		private ConsoleBookmark _frame;
+		private IConsoleBookmark _frame;
 
 		public ProgressRenderer()
 		{
@@ -73,7 +73,7 @@ namespace ShardEqualizer
 
 					if (inProgressLines.Any())
 					{
-						_frame = new ConsoleBookmark();
+						_frame = createBookmark();
 						foreach (var line in inProgressLines)
 							_frame.Render(line);
 					}
@@ -82,7 +82,7 @@ namespace ShardEqualizer
 				{
 					if (inProgressLines.Any())
 					{
-						_frame = new ConsoleBookmark();
+						_frame = createBookmark();
 						foreach (var line in inProgressLines)
 							_frame.Render(line);
 					}
@@ -99,9 +99,13 @@ namespace ShardEqualizer
 
 					if (inProgressLines.Any())
 					{
-						_frame = new ConsoleBookmark();
+						_frame = createBookmark();
 						foreach (var line in inProgressLines)
 							_frame.Render(line);
+					}
+					else
+					{
+						_frame = null;
 					}
 				}
 				else
@@ -112,6 +116,10 @@ namespace ShardEqualizer
 					{
 						foreach (var line in inProgressLines)
 							_frame.Render(line);
+					}
+					else
+					{
+						_frame = null;
 					}
 				}
 			}
@@ -140,6 +148,30 @@ namespace ShardEqualizer
 		{
 			_cts.Cancel();
 			await _renderTask;
+		}
+
+		private IConsoleBookmark createBookmark()
+		{
+			return new ConsoleBookmark(); //TODO configure
+			//return new NonInteractiveConsole();
+		}
+
+		public class NonInteractiveConsole : IConsoleBookmark
+		{
+			public NonInteractiveConsole()
+			{
+				Console.Write(">");
+			}
+
+			public void Clear()
+			{
+				Console.WriteLine("<");
+			}
+
+			public void Render(string line)
+			{
+				Console.WriteLine(line);
+			}
 		}
 	}
 }
