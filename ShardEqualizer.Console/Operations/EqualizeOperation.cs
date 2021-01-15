@@ -20,6 +20,7 @@ namespace ShardEqualizer.Operations
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IReadOnlyList<Interval> _intervals;
+		private readonly IDataSource<CollStatOfUserCollections> _collStatSource;
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -27,9 +28,17 @@ namespace ShardEqualizer.Operations
 		private readonly DebugDirectory _debugDirectory;
 		private readonly bool _planOnly;
 
-		public EqualizeOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals,
-			IMongoClient mongoClient, CommandPlanWriter commandPlanWriter, long? moveLimit, DebugDirectory debugDirectory, bool planOnly)
+		public EqualizeOperation(
+			IDataSource<CollStatOfUserCollections> collStatSource,
+			IConfigDbRepositoryProvider configDb,
+			IReadOnlyList<Interval> intervals,
+			IMongoClient mongoClient,
+			CommandPlanWriter commandPlanWriter,
+			long? moveLimit,
+			DebugDirectory debugDirectory,
+			bool planOnly)
 		{
+			_collStatSource = collStatSource;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
@@ -45,8 +54,6 @@ namespace ShardEqualizer.Operations
 
 		private IReadOnlyCollection<Shard> _shards;
 		private long _chunkSize;
-		private IReadOnlyCollection<string> _userDatabases;
-		private IReadOnlyCollection<CollectionNamespace> _allCollectionNames;
 		private Dictionary<CollectionNamespace, CollStatsResult> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
 		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
@@ -71,43 +78,6 @@ namespace ShardEqualizer.Operations
 				.SelectMany(_ => _.Zones)
 				.Distinct()
 				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
-		}
-
-		private async Task loadUserDatabases(CancellationToken token)
-		{
-			_userDatabases = await _mongoClient.ListUserDatabases(token);
-		}
-
-		private ObservableTask loadCollections(CancellationToken token)
-		{
-			async Task<IEnumerable<CollectionNamespace>> listCollectionNames(string dbName, CancellationToken t)
-			{
-				return await _mongoClient.GetDatabase(dbName).ListUserCollections(t);
-			}
-
-			return ObservableTask.WithParallels(
-				_userDatabases,
-				32,
-				listCollectionNames,
-				allCollectionNames => { _allCollectionNames = allCollectionNames.SelectMany(_ => _).ToList(); },
-				token);
-		}
-
-		private ObservableTask loadCollectionStatistics(CancellationToken token)
-		{
-			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
-			{
-				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-				var collStats = await db.CollStats(ns.CollectionName, 1, t);
-				return collStats;
-			}
-
-			return ObservableTask.WithParallels(
-				_allCollectionNames,
-				32,
-				runCollStats,
-				allCollStats => { _collStatsMap = allCollStats.ToDictionary(_ => _.Ns); },
-				token);
 		}
 
 		private ObservableTask loadAllTagRanges(CancellationToken token)
@@ -394,13 +364,12 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_collStatsMap = await _collStatSource.Get(token);
+
 			var opList = new WorkList()
 			{
 				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
 				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
-				{ "Load user databases", new SingleWork(loadUserDatabases, () => $"found {_userDatabases.Count} databases.")},
-				{ "Load collections", new ObservableWork(loadCollections, () => $"found {_allCollectionNames.Count} collections.")},
-				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
 				{ "Load tag ranges", new ObservableWork(loadAllTagRanges)},
 				{ "Load sharded collection info", new ObservableWork(loadAllShardedCollectionInfo)},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},

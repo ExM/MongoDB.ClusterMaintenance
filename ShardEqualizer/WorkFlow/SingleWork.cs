@@ -4,11 +4,11 @@ using System.Threading.Tasks;
 
 namespace ShardEqualizer.WorkFlow
 {
-	public class SingleWork: IWork
+	public class SingleWork
 	{
 		private readonly Func<CancellationToken, Task> _voidAction;
 		private readonly Func<CancellationToken, Task<string>> _messageAction;
-		
+
 		private readonly Func<string> _doneMessageRenderer;
 
 		public SingleWork(Func<CancellationToken, Task> action, Func<string> doneMessageRenderer = null)
@@ -16,13 +16,13 @@ namespace ShardEqualizer.WorkFlow
 			_voidAction = action;
 			_doneMessageRenderer = doneMessageRenderer;
 		}
-		
+
 		public SingleWork(Func<CancellationToken, Task<string>> action)
 		{
 			_messageAction = action;
 		}
 
-		public virtual async Task Apply(CancellationToken token)
+		public async Task Apply(CancellationToken token)
 		{
 			if (_voidAction != null)
 			{

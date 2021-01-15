@@ -69,7 +69,7 @@ namespace ShardEqualizer.Operations
 		private ObservableTask scanIntervals(CancellationToken token)
 		{
 			return ObservableTask.WithParallels(
-				_intervals.ToList(),
+				_intervals,
 				16,
 				scanInterval,
 				intervalCounts => { _totalUnMovedChunks = intervalCounts.Sum(); },

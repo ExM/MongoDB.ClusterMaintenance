@@ -11,11 +11,13 @@ namespace ShardEqualizer
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 		private readonly ClusterConfig _clusterConfig;
 		private readonly IConfigDbRepositoryProvider _configDb;
+		private readonly ProgressRenderer _progressRenderer;
 
-		public ClusterIdValidator(ClusterConfig clusterConfig, IConfigDbRepositoryProvider configDb)
+		public ClusterIdValidator(ClusterConfig clusterConfig, IConfigDbRepositoryProvider configDb, ProgressRenderer progressRenderer)
 		{
 			_clusterConfig = clusterConfig;
 			_configDb = configDb;
+			_progressRenderer = progressRenderer;
 		}
 
 		public async Task Validate()
@@ -23,11 +25,15 @@ namespace ShardEqualizer
 			if (_clusterConfig.Id == null)
 				return;
 
-			var clusterIdFromConfig = ObjectId.Parse(_clusterConfig.Id);
-			var clusterIdFromConnection = await _configDb.Version.GetClusterId();
+			await using (_progressRenderer.Start($"Check cluster id {_clusterConfig.Id}"))
+			{
+				var clusterIdFromConfig = ObjectId.Parse(_clusterConfig.Id);
+				var clusterIdFromConnection = await _configDb.Version.GetClusterId();
 
-			if (clusterIdFromConfig != clusterIdFromConnection)
-				throw new Exception($"Cluster id mismatch! Expected {clusterIdFromConfig}, but current connection returned {clusterIdFromConnection}");
+				if (clusterIdFromConfig != clusterIdFromConnection)
+					throw new Exception(
+						$"Cluster id mismatch! Expected {clusterIdFromConfig}, but current connection returned {clusterIdFromConnection}");
+			}
 		}
 	}
 }

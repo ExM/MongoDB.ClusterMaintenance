@@ -9,14 +9,18 @@ namespace ShardEqualizer
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 		private readonly ClusterConfig _clusterConfig;
+		private readonly ProgressRenderer _progressRenderer;
 
-		public MongoClientBuilder(ClusterConfig clusterConfig)
+		public MongoClientBuilder(ClusterConfig clusterConfig, ProgressRenderer progressRenderer)
 		{
 			_clusterConfig = clusterConfig;
+			_progressRenderer = progressRenderer;
 		}
 
 		public IMongoClient Build()
 		{
+			_progressRenderer.Write($"Connecting to {string.Join(",", _clusterConfig.Servers)}");
+
 			_log.Info("Connecting to {0}", string.Join(",", _clusterConfig.Servers));
 
 			var urlBuilder = new MongoUrlBuilder()

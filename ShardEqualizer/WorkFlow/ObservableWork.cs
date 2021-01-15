@@ -5,7 +5,7 @@ using ShardEqualizer.UI;
 
 namespace ShardEqualizer.WorkFlow
 {
-	public class ObservableWork: IWork
+	public class ObservableWork
 	{
 		private readonly Func<CancellationToken, ObservableTask> _action;
 		private readonly Func<string> _doneMessageRenderer;
@@ -25,7 +25,7 @@ namespace ShardEqualizer.WorkFlow
 			var cts = new CancellationTokenSource();
 
 			var cancelProgressLoop = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, token).Token;
-			
+
 			var progressTask = Task.Factory.StartNew(() => showProgressLoop(progress, cancelProgressLoop), TaskCreationOptions.LongRunning);
 			try
 			{
@@ -39,7 +39,7 @@ namespace ShardEqualizer.WorkFlow
 
 			Console.WriteLine(_doneMessageRenderer == null ? "done" : _doneMessageRenderer());
 		}
-		
+
 		private async Task showProgressLoop(Progress progress, CancellationToken token)
 		{
 			var frame = new ConsoleBookmark();
@@ -61,7 +61,7 @@ namespace ShardEqualizer.WorkFlow
 					break;
 				}
 			}
-			
+
 			frame.Clear();
 		}
 	}
