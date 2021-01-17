@@ -1,8 +1,11 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
+using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
 {
@@ -25,16 +28,16 @@ namespace ShardEqualizer
 
 			await using var reporter = _progressRenderer.Start("Load collection statistics", userCollections.Count);
 
-			async Task<CollStatsResult> runCollStats(CollectionNamespace ns, CancellationToken t)
+			async Task<KeyValuePair<CollectionNamespace, CollectionStatistics>> runCollStats(CollectionNamespace ns, CancellationToken t)
 			{
 				var collStats = await _collStatsService.Get(ns, t);
 				reporter.Increment();
-				return collStats;
+				return new KeyValuePair<CollectionNamespace, CollectionStatistics>(ns, collStats);
 			}
 
 			var allCollStats = await userCollections.ParallelsAsync(runCollStats, 32, token);
 
-			return new CollStatOfAllUserCollections(allCollStats.ToDictionary(_ => _.Ns));
+			return new CollStatOfAllUserCollections(allCollStats);
 		}
 	}
 }

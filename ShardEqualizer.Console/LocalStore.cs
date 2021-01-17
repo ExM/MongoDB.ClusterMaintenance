@@ -9,21 +9,22 @@ using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Bson.Serialization.Options;
 using MongoDB.Driver;
-using ShardEqualizer.JsonSerialization;
+using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
 {
 	public class LocalStore
 	{
-		private string _fileName;
+		private readonly string _fileName;
 
-		private readonly ConcurrentDictionary<CollectionNamespace, CollStatsResult> _map =
-			new ConcurrentDictionary<CollectionNamespace, CollStatsResult>();
+		private readonly ConcurrentDictionary<CollectionNamespace, CollectionStatistics> _map =
+			new ConcurrentDictionary<CollectionNamespace, CollectionStatistics>();
 
-		public LocalStore()
+		public LocalStore(ClusterIdService clusterIdService)
 		{
-			var path = Path.GetFullPath(Path.Combine(".", "localStore", "clusterId"));
+			var path = Path.GetFullPath(Path.Combine(".", "localStore", clusterIdService.ClusterId.ToString()));
 			if (!Directory.Exists(path))
 				Directory.CreateDirectory(path);
 
@@ -34,23 +35,18 @@ namespace ShardEqualizer
 				var doc = BsonDocument.Parse(File.ReadAllText(_fileName));
 				var container = BsonSerializer.Deserialize<Container>(doc);
 
-				_map = new ConcurrentDictionary<CollectionNamespace, CollStatsResult>(container.Stats);
+				_map = new ConcurrentDictionary<CollectionNamespace, CollectionStatistics>(container.Stats);
 			}
 		}
 
-		private void deserializeContent()
-		{
-
-		}
-
-		public CollStatsResult FindCollStats(CollectionNamespace ns)
+		public CollectionStatistics FindCollStats(CollectionNamespace ns)
 		{
 			return _map.TryGetValue(ns, out var result)
 				? result
 				: null;
 		}
 
-		public void SaveCollStats(CollectionNamespace ns, CollStatsResult collStats)
+		public void SaveCollStats(CollectionNamespace ns, CollectionStatistics collStats)
 		{
 			_map[ns] = collStats;
 		}
@@ -60,7 +56,7 @@ namespace ShardEqualizer
 			var container = new Container()
 			{
 				Date = DateTime.UtcNow,
-				Stats = new Dictionary<CollectionNamespace, CollStatsResult>(_map)
+				Stats = new Dictionary<CollectionNamespace, CollectionStatistics>(_map)
 			};
 
 			var content = container.ToJson(new JsonWriterSettings() {Indent = true, OutputMode = JsonOutputMode.CanonicalExtendedJson});
@@ -74,7 +70,7 @@ namespace ShardEqualizer
 			public DateTime Date { get; set; }
 
 			[BsonElement("stats"), BsonDictionaryOptions(DictionaryRepresentation.Document), BsonIgnoreIfNull]
-			public Dictionary<CollectionNamespace, CollStatsResult> Stats { get; set; }
+			public Dictionary<CollectionNamespace, CollectionStatistics> Stats { get; set; }
 		}
 	}
 }

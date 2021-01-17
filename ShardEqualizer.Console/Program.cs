@@ -59,7 +59,7 @@ namespace ShardEqualizer
 				kernel.Load<Module>();
 				BindConfiguration(verbose, kernel);
 
-				await kernel.Get<ClusterIdValidator>().Validate();
+				await kernel.Get<ClusterIdService>().Validate();
 
 				var result = await ProcessVerbAndReturnExitCode(t => verbose.RunOperation(kernel, t), cts.Token);
 

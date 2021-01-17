@@ -43,9 +43,9 @@ namespace ShardEqualizer.Operations
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 
 			var report = createReport(sizeRenderer);
-			foreach (var collStats in allCollStats.Values)
+			foreach (var (ns, collStats) in allCollStats)
 			{
-				var interval = _intervals.FirstOrDefault(_ => _.Namespace.FullName == collStats.Ns.FullName);
+				var interval = _intervals.FirstOrDefault(_ => _.Namespace.FullName == ns.FullName);
 				report.Append(collStats, interval?.Correction);
 			}
 

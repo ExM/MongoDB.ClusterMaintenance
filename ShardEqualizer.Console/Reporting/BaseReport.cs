@@ -4,6 +4,7 @@ using System.Text;
 using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer.Reporting
 {
@@ -18,7 +19,7 @@ namespace ShardEqualizer.Reporting
 			SizeRenderer = sizeRenderer;
 		}
 
-		public void Append(CollStatsResult collStats, CorrectionMode? correctionMode)
+		public void Append(CollectionStatistics collStats, CorrectionMode? correctionMode)
 		{
 			if (collStats.Sharded)
 			{

@@ -1,5 +1,5 @@
 using System;
-using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer.Reporting
 {
@@ -10,7 +10,7 @@ namespace ShardEqualizer.Reporting
 		public long Index;
 		public long AllStorage => DataStorage + Index;
 
-		public void Add(CollStats collStats)
+		public void Add(ShardCollectionStatistics collStats)
 		{
 			DataActual += collStats.Size;
 			DataStorage += collStats.StorageSize;

@@ -1,7 +1,9 @@
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
+using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
 {
@@ -16,14 +18,15 @@ namespace ShardEqualizer
 			_localStore = localStore;
 		}
 
-		public async Task<CollStatsResult> Get(CollectionNamespace ns, CancellationToken token)
+		public async Task<CollectionStatistics> Get(CollectionNamespace ns, CancellationToken token)
 		{
 			var result = _localStore.FindCollStats(ns);
 			if (result == null)
 			{
 				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-				result = await db.CollStats(ns.CollectionName, 1, token);
+				var collStat = await db.CollStats(ns.CollectionName, 1, token);
 
+				result = new CollectionStatistics(collStat);
 				_localStore.SaveCollStats(ns, result);
 			}
 

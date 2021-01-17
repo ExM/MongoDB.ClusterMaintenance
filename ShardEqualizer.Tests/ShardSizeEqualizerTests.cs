@@ -5,6 +5,7 @@ using NUnit.Framework;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShardSizeEqualizing;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
 {
@@ -22,12 +23,12 @@ namespace ShardEqualizer
 				new Shard("sD", "tD"),
 			};
 
-			var collStatsByShards = new Dictionary<ShardIdentity, CollStats>()
+			var collStatsByShards = new Dictionary<ShardIdentity, ShardCollectionStatistics>()
 			{
-				{shards[0].Id, new CollStats() {Size = 150}},
-				{shards[1].Id, new CollStats() {Size = 150}},
-				{shards[2].Id, new CollStats() {Size = 350}},
-				{shards[3].Id, new CollStats() {Size = 100}},
+				{shards[0].Id, new ShardCollectionStatistics() {Size = 150}},
+				{shards[1].Id, new ShardCollectionStatistics() {Size = 150}},
+				{shards[2].Id, new ShardCollectionStatistics() {Size = 350}},
+				{shards[3].Id, new ShardCollectionStatistics() {Size = 100}},
 			};
 
 			var tagRanges = new List<TagRange>()
@@ -75,7 +76,7 @@ namespace ShardEqualizer
 			}
 
 			var chunkColl = new ChunkCollection(chunks, (ch) => Task.FromResult<long>(10));
-			
+
 			var targetSize = new Dictionary<TagIdentity, long>()
 			{
 				{tagRanges[0].Tag, 200},
@@ -90,7 +91,7 @@ namespace ShardEqualizer
 			{
 				if (equalizer.CurrentSizeDeviation < 3)
 					break;
-				
+
 				round++;
 			}
 		}

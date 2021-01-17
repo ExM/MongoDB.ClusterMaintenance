@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using MongoDB.Bson;
 using NLog;
 using ShardEqualizer.Models;
+using ShardEqualizer.ShortModels;
 using ShardEqualizer.MongoCommands;
 
 namespace ShardEqualizer.ShardSizeEqualizing
@@ -17,7 +18,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 		private readonly IReadOnlyList<Bound> _movingBounds;
 
 		public ShardSizeEqualizer(IReadOnlyCollection<Shard> shards,
-			IReadOnlyDictionary<ShardIdentity, CollStats> collStatsByShards,
+			IReadOnlyDictionary<ShardIdentity, ShardCollectionStatistics> collStatsByShards,
 			IReadOnlyList<TagRange> tagRanges,
 			IDictionary<TagIdentity, long> targetSize,
 			ChunkCollection chunks)

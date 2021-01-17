@@ -11,6 +11,7 @@ using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShardSizeEqualizing;
+using ShardEqualizer.ShortModels;
 using ShardEqualizer.WorkFlow;
 
 namespace ShardEqualizer.Operations
@@ -54,7 +55,7 @@ namespace ShardEqualizer.Operations
 
 		private IReadOnlyCollection<Shard> _shards;
 		private long _chunkSize;
-		private Dictionary<CollectionNamespace, CollStatsResult> _collStatsMap;
+		private Dictionary<CollectionNamespace, CollectionStatistics> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
 		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
 		private int _totalChunks = 0;
