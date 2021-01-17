@@ -3,8 +3,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
-using ShardEqualizer.Models;
-using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer

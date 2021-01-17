@@ -10,24 +10,24 @@ namespace ShardEqualizer
 	public class CollectionStatisticService
 	{
 		private readonly IMongoClient _mongoClient;
-		private readonly LocalStore _localStore;
+		private readonly CollStatsLocalStore _collStatsLocalStore;
 
-		public CollectionStatisticService(IMongoClient mongoClient, LocalStore localStore)
+		public CollectionStatisticService(IMongoClient mongoClient, CollStatsLocalStore collStatsLocalStore)
 		{
 			_mongoClient = mongoClient;
-			_localStore = localStore;
+			_collStatsLocalStore = collStatsLocalStore;
 		}
 
 		public async Task<CollectionStatistics> Get(CollectionNamespace ns, CancellationToken token)
 		{
-			var result = _localStore.FindCollStats(ns);
+			var result = _collStatsLocalStore.FindCollStats(ns);
 			if (result == null)
 			{
 				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
 				var collStat = await db.CollStats(ns.CollectionName, 1, token);
 
 				result = new CollectionStatistics(collStat);
-				_localStore.SaveCollStats(ns, result);
+				_collStatsLocalStore.SaveCollStats(ns, result);
 			}
 
 			return result;

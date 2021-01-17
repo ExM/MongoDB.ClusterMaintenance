@@ -18,6 +18,7 @@ using NConfiguration.Xml;
 using Ninject;
 using NLog;
 using ShardEqualizer.Config;
+using ShardEqualizer.LocalStoring;
 using ShardEqualizer.Reporting;
 using ShardEqualizer.Verbs;
 
@@ -63,7 +64,7 @@ namespace ShardEqualizer
 
 				var result = await ProcessVerbAndReturnExitCode(t => verbose.RunOperation(kernel, t), cts.Token);
 
-				kernel.Get<LocalStore>().SaveFile();
+				kernel.Get<LocalStoreProvider>().SaveFile();
 
 				foreach (var item in kernel.GetAll<IAsyncDisposable>())
 					await item.DisposeAsync();
@@ -99,6 +100,14 @@ namespace ShardEqualizer
 			var clusterConfig = loadClusterConfig(appSettings, verbose.ClusterName);
 
 			kernel.Bind<ClusterConfig>().ToConstant(clusterConfig);
+
+			var localStoreConfig = appSettings.TryGet<LocalStoreConfig>() ?? new LocalStoreConfig();
+			if (verbose.ResetStore)
+				localStoreConfig.ResetStore = true;
+
+			kernel.Bind<LocalStoreConfig>().ToConstant(localStoreConfig);
+
+
 
 			var intervalConfigs = loadIntervalConfigurations(clusterConfig, appSettings);
 			var intervals = intervalConfigs.Select(_ => new Interval(_)).ToList().AsReadOnly();

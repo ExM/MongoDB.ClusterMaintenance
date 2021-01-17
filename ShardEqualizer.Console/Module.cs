@@ -3,6 +3,7 @@ using System.Collections;
 using MongoDB.Driver;
 using Ninject;
 using Ninject.Modules;
+using ShardEqualizer.LocalStoring;
 using ShardEqualizer.Serialization;
 
 namespace ShardEqualizer
@@ -16,7 +17,11 @@ namespace ShardEqualizer
 			Bind<ClusterIdService>().ToSelf().InSingletonScope();
 			Bind<IAsyncDisposable, ProgressRenderer>().To<ProgressRenderer>().InSingletonScope();
 
-			Bind<LocalStore>().ToSelf().InSingletonScope();
+			Bind<CollStatsLocalStore>().ToSelf().InSingletonScope();
+			Bind<UserCollectionsLocalStore>().ToSelf().InSingletonScope();
+
+			Bind<LocalStoreProvider>().ToSelf().InSingletonScope();
+
 			Bind<CollectionStatisticService>().ToSelf().InSingletonScope();
 
 			Bind<IMongoClient>().ToMethod(ctx => ctx.Kernel.Get<MongoClientBuilder>().Build()).InSingletonScope();

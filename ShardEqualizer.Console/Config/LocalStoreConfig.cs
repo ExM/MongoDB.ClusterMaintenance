@@ -1,9 +1,11 @@
+using System.Runtime.Serialization;
+
 namespace ShardEqualizer.Config
 {
+	[DataContract(Name = "LocalStore")]
 	public class LocalStoreConfig
 	{
-		public string StoreName { get; set; }
-
-		public bool ResetStore { get; set; }
+		[DataMember(Name = "Reset")]
+		public bool? ResetStore { get; set; }
 	}
 }

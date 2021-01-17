@@ -25,6 +25,8 @@
 
 	-->
 
+	<LocalStore Reset="false" />
+
 	<Clusters Default="LocalDemo">
 		<LocalDemo Servers="localhost" zones="A,B,C" >
 

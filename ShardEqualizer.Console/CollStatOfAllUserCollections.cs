@@ -1,7 +1,5 @@
 using System.Collections.Generic;
 using MongoDB.Driver;
-using ShardEqualizer.Models;
-using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
