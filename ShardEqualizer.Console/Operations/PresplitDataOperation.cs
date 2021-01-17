@@ -8,23 +8,29 @@ using NLog;
 using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
-using ShardEqualizer.WorkFlow;
 
 namespace ShardEqualizer.Operations
 {
 	public class PresplitDataOperation : IOperation
 	{
 		private readonly IReadOnlyList<Interval> _intervals;
+		private readonly ProgressRenderer _progressRenderer;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly bool _renew;
 		private readonly IConfigDbRepositoryProvider _configDb;
 
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
-		public PresplitDataOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals, CommandPlanWriter commandPlanWriter, bool renew)
+		public PresplitDataOperation(
+			IConfigDbRepositoryProvider configDb,
+			IReadOnlyList<Interval> intervals,
+			ProgressRenderer progressRenderer,
+			CommandPlanWriter commandPlanWriter,
+			bool renew)
 		{
 			_configDb = configDb;
 			_intervals = intervals;
+			_progressRenderer = progressRenderer;
 			_commandPlanWriter = commandPlanWriter;
 			_renew = renew;
 
@@ -34,9 +40,9 @@ namespace ShardEqualizer.Operations
 			_intervals = intervals;
 		}
 
-		private async Task createPresplitCommandForInterval(Interval interval, CancellationToken token)
+		private async Task createPresplitCommandForInterval(Interval interval, ProgressReporter reporter,
+			CancellationToken token)
 		{
-
 			var preSplit = interval.PreSplit;
 
 			if (preSplit == PreSplitMode.Auto)
@@ -98,25 +104,15 @@ namespace ShardEqualizer.Operations
 					_commandPlanWriter.Comment($"---");
 				}
 			}
-		}
 
-		private ObservableTask createPresplitCommands(CancellationToken token)
-		{
-			return ObservableTask.WithParallels(
-				_intervals,
-				16,
-				createPresplitCommandForInterval,
-				token);
+			reporter.Increment();
 		}
 
 		public async Task Run(CancellationToken token)
 		{
-			var opList = new WorkList()
-			{
-				{ "Create presplit commands", new ObservableWork(createPresplitCommands)},
-			};
+			await using var reporter = _progressRenderer.Start("Create presplit commands", _intervals.Count);
 
-			await opList.Apply(token);
+			await _intervals.ParallelsAsync((interval, t) => createPresplitCommandForInterval(interval, reporter, t), 32, token);
 		}
 
 		private async Task<bool> removeOldTagRangesIfRequired(Interval interval, TagRangeCommandBuffer buffer)

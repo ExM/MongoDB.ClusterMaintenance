@@ -32,6 +32,10 @@
       "commandName": "Project",
       "commandLineArgs": "presplit"
     },
+    "presplit renew": {
+      "commandName": "Project",
+      "commandLineArgs": "presplit --renew"
+    },
     "balancer": {
       "commandName": "Project",
       "commandLineArgs": "balancer"
