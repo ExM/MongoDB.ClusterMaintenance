@@ -17,17 +17,21 @@ namespace ShardEqualizer.Operations
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly bool _renew;
+		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly IConfigDbRepositoryProvider _configDb;
 
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
+		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionByNs;
 
 		public PresplitDataOperation(
+			ShardedCollectionService shardedCollectionService,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter,
 			bool renew)
 		{
+			_shardedCollectionService = shardedCollectionService;
 			_configDb = configDb;
 			_intervals = intervals;
 			_progressRenderer = progressRenderer;
@@ -80,7 +84,7 @@ namespace ShardEqualizer.Operations
 					switch (preSplit)
 					{
 						case PreSplitMode.Interval:
-							await presplitData(interval, buffer, token);
+							presplitData(interval, buffer);
 							break;
 						case PreSplitMode.Chunks:
 							await distributeCollection(interval, buffer, token);
@@ -110,6 +114,8 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_shardedCollectionByNs = await _shardedCollectionService.Get(token);
+
 			await using var reporter = _progressRenderer.Start("Create presplit commands", _intervals.Count);
 
 			await _intervals.ParallelsAsync((interval, t) => createPresplitCommandForInterval(interval, reporter, t), 32, token);
@@ -135,9 +141,9 @@ namespace ShardEqualizer.Operations
 			return true;
 		}
 
-		private async Task presplitData(Interval interval, TagRangeCommandBuffer buffer, CancellationToken token)
+		private void presplitData(Interval interval, TagRangeCommandBuffer buffer)
 		{
-			var collInfo = await _configDb.Collections.Find(interval.Namespace);
+			var collInfo = _shardedCollectionByNs[interval.Namespace];
 
 			if (collInfo == null)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
@@ -167,7 +173,7 @@ namespace ShardEqualizer.Operations
 		private async Task distributeCollection(Interval interval, TagRangeCommandBuffer buffer,
 			CancellationToken token)
 		{
-			var collInfo = await _configDb.Collections.Find(interval.Namespace);
+			var collInfo = _shardedCollectionByNs[interval.Namespace];
 
 			if (collInfo == null)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");

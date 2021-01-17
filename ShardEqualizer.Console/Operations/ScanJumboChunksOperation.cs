@@ -17,12 +17,17 @@ namespace ShardEqualizer.Operations
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly IReadOnlyList<Interval> _intervals;
-		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _collectionsInfo;
+		private readonly ShardedCollectionService _shardedCollectionService;
+		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _collectionsInfo;
 		private List<Chunk> _jumboChunks;
 		private ConcurrentBag<ChunkDataSize> _chunkDataSizes = new ConcurrentBag<ChunkDataSize>();
 		private int _dataSizeCommandErrors = 0;
 
-		public ScanJumboChunksOperation(IReadOnlyList<Interval> intervals, IConfigDbRepositoryProvider configDb, IMongoClient mongoClient)
+		public ScanJumboChunksOperation(
+			IReadOnlyList<Interval> intervals,
+			ShardedCollectionService shardedCollectionService,
+			IConfigDbRepositoryProvider configDb,
+			IMongoClient mongoClient)
 		{
 			_configDb = configDb;
 			_mongoClient = mongoClient;
@@ -31,24 +36,7 @@ namespace ShardEqualizer.Operations
 				throw new ArgumentException("interval list is empty");
 
 			_intervals = intervals;
-		}
-
-		private ObservableTask loadCollectionsInfo(CancellationToken token)
-		{
-			async Task<ShardedCollectionInfo> loadCollectionInfo(Interval interval, CancellationToken t)
-			{
-				var collInfo = await _configDb.Collections.Find(interval.Namespace);
-				if (collInfo == null)
-					throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
-				return collInfo;
-			}
-
-			return ObservableTask.WithParallels(
-				_intervals,
-				8,
-				loadCollectionInfo,
-				allCollectionsInfo => { _collectionsInfo = allCollectionsInfo.ToDictionary(_ => _.Id); },
-				token);
+			_shardedCollectionService = shardedCollectionService;
 		}
 
 		private ObservableTask findJumboChunks(CancellationToken token)
@@ -141,9 +129,10 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_collectionsInfo = await _shardedCollectionService.Get(token);
+
 			var opList = new WorkList()
 			{
-				{ "Load collections info", new ObservableWork(loadCollectionsInfo)},
 				{ "Find jumbo chunks", new ObservableWork(findJumboChunks, () => $"found {_jumboChunks.Count} chunks.")},
 				{ "Scan jumbo chunks", new ObservableWork(scanJumboChunks)}
 			};

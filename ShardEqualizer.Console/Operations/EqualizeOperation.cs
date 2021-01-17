@@ -23,6 +23,7 @@ namespace ShardEqualizer.Operations
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
+		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -33,6 +34,7 @@ namespace ShardEqualizer.Operations
 		public EqualizeOperation(
 			IDataSource<AllShards> allShardsSource,
 			IDataSource<CollStatOfAllUserCollections> collStatSource,
+			ShardedCollectionService shardedCollectionService,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,
@@ -43,6 +45,7 @@ namespace ShardEqualizer.Operations
 		{
 			_allShardsSource = allShardsSource;
 			_collStatSource = collStatSource;
+			_shardedCollectionService = shardedCollectionService;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
@@ -60,7 +63,7 @@ namespace ShardEqualizer.Operations
 		private long _chunkSize;
 		private Dictionary<CollectionNamespace, CollectionStatistics> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
-		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
+		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
 		private int _totalChunks = 0;
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
@@ -89,21 +92,6 @@ namespace ShardEqualizer.Operations
 				16,
 				loadTagRanges,
 				allTagRanges => { _tagRangesByNs = allTagRanges.ToDictionary(_ => _.First().Namespace, _ => _); },
-				token);
-		}
-
-		private ObservableTask loadAllShardedCollectionInfo(CancellationToken token)
-		{
-			async Task<ShardedCollectionInfo> loadShardedCollectionInfo(CollectionNamespace ns, CancellationToken t)
-			{
-				return await _configDb.Collections.Find(ns);
-			}
-
-			return ObservableTask.WithParallels(
-				_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_ => _.Namespace).ToList(),
-				16,
-				loadShardedCollectionInfo,
-				allShardedCollectionInfo => { _shardedCollectionInfoByNs = allShardedCollectionInfo.ToDictionary(_ => _.Id); },
 				token);
 		}
 
@@ -360,6 +348,7 @@ namespace ShardEqualizer.Operations
 		{
 			_collStatsMap = await _collStatSource.Get(token);
 			_shards = await _allShardsSource.Get(token);
+			_shardedCollectionInfoByNs = await _shardedCollectionService.Get(token);
 
 			_shardByTag =  _intervals
 				.SelectMany(_ => _.Zones)
@@ -370,7 +359,6 @@ namespace ShardEqualizer.Operations
 			{
 				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
 				{ "Load tag ranges", new ObservableWork(loadAllTagRanges)},
-				{ "Load sharded collection info", new ObservableWork(loadAllShardedCollectionInfo)},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
 				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
 				{ "Find solution", findSolution},

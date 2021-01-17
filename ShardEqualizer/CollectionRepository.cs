@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using ShardEqualizer.Models;
@@ -8,9 +9,9 @@ namespace ShardEqualizer
 {
 	public class CollectionRepository
 	{
-		private IMongoCollection<ShardedCollectionInfo> _coll;
+		private readonly IMongoCollection<ShardedCollectionInfo> _coll;
 
-		internal CollectionRepository(IMongoDatabase db)
+		public CollectionRepository(IMongoDatabase db)
 		{
 			_coll = db.GetCollection<ShardedCollectionInfo>("collections");
 		}
@@ -19,10 +20,15 @@ namespace ShardEqualizer
 		{
 			return _coll.Find(_ => _.Id == ns).FirstOrDefaultAsync();
 		}
-		
-		public async Task<IReadOnlyList<ShardedCollectionInfo>> FindAll(bool includeConfigCollections = false)
+
+		public Task<IReadOnlyList<ShardedCollectionInfo>> FindAll(bool includeConfigCollections = false)
 		{
-			var result = await _coll.Find(Builders<ShardedCollectionInfo>.Filter.Empty).ToListAsync();
+			return FindAll(includeConfigCollections, CancellationToken.None);
+		}
+
+		public async Task<IReadOnlyList<ShardedCollectionInfo>> FindAll(bool includeConfigCollections, CancellationToken token)
+		{
+			var result = await _coll.Find(Builders<ShardedCollectionInfo>.Filter.Empty).ToListAsync(token);
 			if (!includeConfigCollections)
 				result.RemoveAll(_ => string.Equals(_.Id.DatabaseNamespace.DatabaseName, "config", StringComparison.Ordinal));
 

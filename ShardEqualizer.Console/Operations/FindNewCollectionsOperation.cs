@@ -21,6 +21,7 @@ namespace ShardEqualizer.Operations
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly JsonWriterSettings _jsonWriterSettings = new JsonWriterSettings()
 			{Indent = false, GuidRepresentation = GuidRepresentation.Unspecified, OutputMode = JsonOutputMode.Shell};
@@ -33,21 +34,16 @@ namespace ShardEqualizer.Operations
 
 		public FindNewCollectionsOperation(
 			IDataSource<AllShards> allShardsSource,
+			ShardedCollectionService shardedCollectionService,
 			IConfigDbRepositoryProvider configDb,
 			IMongoClient mongoClient,
 			IReadOnlyList<Interval> intervals)
 		{
 			_allShardsSource = allShardsSource;
+			_shardedCollectionService = shardedCollectionService;
 			_intervals = intervals;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
-		}
-
-		private async Task<string> loadShardedCollections(CancellationToken token)
-		{
-			_shardedCollections = (await _configDb.Collections.FindAll()).ToDictionary(_ => _.Id);
-
-			return $"found {_shardedCollections.Count} collections.";
 		}
 
 		private void analizeIntervals(CancellationToken token)
@@ -100,6 +96,8 @@ namespace ShardEqualizer.Operations
 		public async Task Run(CancellationToken token)
 		{
 			_shards = await _allShardsSource.Get(token);
+			_shardedCollections = new Dictionary<CollectionNamespace, ShardedCollectionInfo>(
+				await _shardedCollectionService.Get(token));
 
 			_allShardNames = _shards
 				.Select(_ => _.Id.ToString())
@@ -110,7 +108,6 @@ namespace ShardEqualizer.Operations
 
 			var opList = new WorkList()
 			{
-				{ "Load sharded collections", new SingleWork(loadShardedCollections)},
 				{ "Analyse of loaded data", analizeIntervals},
 				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
 			};

@@ -27,14 +27,23 @@ namespace ShardEqualizer
 			Bind<IMongoClient>().ToMethod(ctx => ctx.Kernel.Get<MongoClientBuilder>().Build()).InSingletonScope();
 			Bind<ConfigDBContainer>().ToMethod(ctx => new ConfigDBContainer(ctx.Kernel.Get<IMongoClient>())).InSingletonScope();
 
-			Bind<ShardRepository>().ToSelf()
+			Bind<ChunkRepository>().ToSelf().InSingletonScope()
 				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
-
-			Bind<VersionRepository>().ToSelf()
+			Bind<CollectionRepository>().ToSelf().InSingletonScope()
+				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
+			Bind<TagRangeRepository>().ToSelf().InSingletonScope()
+				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
+			Bind<SettingsRepository>().ToSelf().InSingletonScope()
+				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
+			Bind<ShardRepository>().ToSelf().InSingletonScope()
+				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
+			Bind<VersionRepository>().ToSelf().InSingletonScope()
 				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
 
 			Bind<IConfigDbRepositoryProvider>().To<ConfigDbRepositoryProvider>().InSingletonScope();
 			Bind<IAdminDB>().To<AdminDB>().InSingletonScope();
+
+			Bind<ShardedCollectionService>().ToSelf().InSingletonScope();
 
 			Bind<IDataSource<UserDatabases>>().To<UserDatabasesSource>().InSingletonScope();
 			Bind<IDataSource<UserCollections>>().To<UserCollectionsSource>().InSingletonScope();
