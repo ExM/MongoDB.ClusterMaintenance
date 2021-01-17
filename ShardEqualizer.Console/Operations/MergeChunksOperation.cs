@@ -17,6 +17,7 @@ namespace ShardEqualizer.Operations
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IReadOnlyList<Interval> _intervals;
+		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -26,8 +27,14 @@ namespace ShardEqualizer.Operations
 
 		private ConcurrentBag<MergeCommand> _mergeCommands = new ConcurrentBag<MergeCommand>();
 
-		public MergeChunksOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals, IMongoClient mongoClient, CommandPlanWriter commandPlanWriter)
+		public MergeChunksOperation(
+			IDataSource<AllShards> allShardsSource,
+			IConfigDbRepositoryProvider configDb,
+			IReadOnlyList<Interval> intervals,
+			IMongoClient mongoClient,
+			CommandPlanWriter commandPlanWriter)
 		{
+			_allShardsSource = allShardsSource;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
@@ -36,12 +43,6 @@ namespace ShardEqualizer.Operations
 				throw new ArgumentException("interval list is empty");
 
 			_intervals = intervals;
-		}
-
-		private async Task<string> loadShards(CancellationToken token)
-		{
-			_shards = await _configDb.Shards.GetAll();
-			return $"found {_shards.Count} shards.";
 		}
 
 		private async Task<(Interval interval, IList<TagRange> tagRanges)> loadTag(Interval interval, CancellationToken token)
@@ -142,9 +143,10 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_shards = await _allShardsSource.Get(token);
+
 			var opList = new WorkList()
 			{
-				{ "Load shard list", new SingleWork(loadShards)},
 				{ "Load tags", new ObservableWork(loadTags, () => $"found {_mergeZones.Count} tag ranges.")},
 				{ "Merge intervals", new ObservableWork(mergeIntervals, () => _mergedChunks == 0
 					? "No chunks to merge."

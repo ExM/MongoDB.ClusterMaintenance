@@ -27,6 +27,9 @@ namespace ShardEqualizer
 			Bind<IMongoClient>().ToMethod(ctx => ctx.Kernel.Get<MongoClientBuilder>().Build()).InSingletonScope();
 			Bind<ConfigDBContainer>().ToMethod(ctx => new ConfigDBContainer(ctx.Kernel.Get<IMongoClient>())).InSingletonScope();
 
+			Bind<ShardRepository>().ToSelf()
+				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
+
 			Bind<VersionRepository>().ToSelf()
 				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
 
@@ -36,6 +39,7 @@ namespace ShardEqualizer
 			Bind<IDataSource<UserDatabases>>().To<UserDatabasesSource>().InSingletonScope();
 			Bind<IDataSource<UserCollections>>().To<UserCollectionsSource>().InSingletonScope();
 			Bind<IDataSource<CollStatOfAllUserCollections>>().To<CollStatOfAllUserCollectionsSource>().InSingletonScope();
+			Bind<IDataSource<AllShards>>().To<AllShardsSource>().InSingletonScope();
 		}
 	}
 

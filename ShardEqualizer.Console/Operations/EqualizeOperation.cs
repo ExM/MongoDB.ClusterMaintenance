@@ -21,6 +21,7 @@ namespace ShardEqualizer.Operations
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IReadOnlyList<Interval> _intervals;
+		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
@@ -30,6 +31,7 @@ namespace ShardEqualizer.Operations
 		private readonly bool _planOnly;
 
 		public EqualizeOperation(
+			IDataSource<AllShards> allShardsSource,
 			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
@@ -39,6 +41,7 @@ namespace ShardEqualizer.Operations
 			DebugDirectory debugDirectory,
 			bool planOnly)
 		{
+			_allShardsSource = allShardsSource;
 			_collStatSource = collStatSource;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
@@ -69,16 +72,6 @@ namespace ShardEqualizer.Operations
 		private async Task getChunkSize(CancellationToken token)
 		{
 			_chunkSize = await _configDb.Settings.GetChunksize();
-		}
-
-		private async Task loadShards(CancellationToken token)
-		{
-			_shards = await _configDb.Shards.GetAll();
-
-			_shardByTag =  _intervals
-				.SelectMany(_ => _.Zones)
-				.Distinct()
-				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 		}
 
 		private ObservableTask loadAllTagRanges(CancellationToken token)
@@ -366,11 +359,16 @@ namespace ShardEqualizer.Operations
 		public async Task Run(CancellationToken token)
 		{
 			_collStatsMap = await _collStatSource.Get(token);
+			_shards = await _allShardsSource.Get(token);
+
+			_shardByTag =  _intervals
+				.SelectMany(_ => _.Zones)
+				.Distinct()
+				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 
 			var opList = new WorkList()
 			{
 				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
-				{ "Load shard list", new SingleWork(loadShards, () => $"found {_shards.Count} shards.")},
 				{ "Load tag ranges", new ObservableWork(loadAllTagRanges)},
 				{ "Load sharded collection info", new ObservableWork(loadAllShardedCollectionInfo)},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},

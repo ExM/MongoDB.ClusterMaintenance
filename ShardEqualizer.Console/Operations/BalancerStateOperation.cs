@@ -16,22 +16,21 @@ namespace ShardEqualizer.Operations
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IConfigDbRepositoryProvider _configDb;
+		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IReadOnlyList<Interval> _intervals;
 
 		private IReadOnlyCollection<Shard> _shards;
 		private int _totalUnMovedChunks = 0;
 		private readonly ConcurrentBag<UnMovedChunk> _unMovedChunks = new ConcurrentBag<UnMovedChunk>();
 
-		public BalancerStateOperation(IConfigDbRepositoryProvider configDb, IReadOnlyList<Interval> intervals)
+		public BalancerStateOperation(
+			IDataSource<AllShards> allShardsSource,
+			IConfigDbRepositoryProvider configDb,
+			IReadOnlyList<Interval> intervals)
 		{
+			_allShardsSource = allShardsSource;
 			_intervals = intervals;
 			_configDb = configDb;
-		}
-
-		private async Task<string> loadShards(CancellationToken token)
-		{
-			_shards = await _configDb.Shards.GetAll();
-			return $"found {_shards.Count} shards.";
 		}
 
 		private async Task<int> scanInterval(Interval interval, CancellationToken token)
@@ -78,9 +77,10 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_shards = await _allShardsSource.Get(token);
+
 			var opList = new WorkList()
 			{
-				{ "Load shard list", new SingleWork(loadShards)},
 				{ "Scan intervals", new ObservableWork(scanIntervals, () => _totalUnMovedChunks == 0
 					? "all chunks moved."
 					: $"found {_totalUnMovedChunks} chunks is awaiting movement.")}

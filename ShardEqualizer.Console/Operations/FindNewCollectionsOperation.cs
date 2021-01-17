@@ -20,6 +20,7 @@ namespace ShardEqualizer.Operations
 
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
+		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly JsonWriterSettings _jsonWriterSettings = new JsonWriterSettings()
 			{Indent = false, GuidRepresentation = GuidRepresentation.Unspecified, OutputMode = JsonOutputMode.Shell};
@@ -30,25 +31,16 @@ namespace ShardEqualizer.Operations
 		private Dictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollections;
 		private IReadOnlyList<NewShardedCollection> _newShardedCollection;
 
-		public FindNewCollectionsOperation(IConfigDbRepositoryProvider configDb, IMongoClient mongoClient, IReadOnlyList<Interval> intervals)
+		public FindNewCollectionsOperation(
+			IDataSource<AllShards> allShardsSource,
+			IConfigDbRepositoryProvider configDb,
+			IMongoClient mongoClient,
+			IReadOnlyList<Interval> intervals)
 		{
+			_allShardsSource = allShardsSource;
 			_intervals = intervals;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
-		}
-
-		private async Task<string> loadShards(CancellationToken token)
-		{
-			_shards = await _configDb.Shards.GetAll();
-
-			_allShardNames = _shards
-				.Select(_ => _.Id.ToString())
-				.OrderBy(_ => _)
-				.ToList();
-
-			_defaultZones = string.Join(",", _allShardNames);
-
-			return $"found {_shards.Count} shards.";
 		}
 
 		private async Task<string> loadShardedCollections(CancellationToken token)
@@ -107,9 +99,17 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_shards = await _allShardsSource.Get(token);
+
+			_allShardNames = _shards
+				.Select(_ => _.Id.ToString())
+				.OrderBy(_ => _)
+				.ToList();
+
+			_defaultZones = string.Join(",", _allShardNames);
+
 			var opList = new WorkList()
 			{
-				{ "Load shard list", new SingleWork(loadShards)},
 				{ "Load sharded collections", new SingleWork(loadShardedCollections)},
 				{ "Analyse of loaded data", analizeIntervals},
 				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
