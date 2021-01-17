@@ -13,37 +13,34 @@ namespace ShardEqualizer.Operations
 {
 	public class BalancerStateOperation: IOperation
 	{
-		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IReadOnlyList<Interval> _intervals;
-
-		private IReadOnlyCollection<Shard> _shards;
-		private int _totalUnMovedChunks = 0;
-		private readonly ConcurrentBag<UnMovedChunk> _unMovedChunks = new ConcurrentBag<UnMovedChunk>();
+		private readonly ProgressRenderer _progressRenderer;
 
 		public BalancerStateOperation(
 			IDataSource<AllShards> allShardsSource,
 			IConfigDbRepositoryProvider configDb,
-			IReadOnlyList<Interval> intervals)
+			IReadOnlyList<Interval> intervals,
+			ProgressRenderer progressRenderer)
 		{
 			_allShardsSource = allShardsSource;
 			_intervals = intervals;
+			_progressRenderer = progressRenderer;
 			_configDb = configDb;
 		}
 
-		private async Task<int> scanInterval(Interval interval, CancellationToken token)
+		private async Task<IList<UnMovedChunk>> scanInterval(Interval interval, IReadOnlyCollection<Shard> shards, ProgressReporter reporter, CancellationToken token)
 		{
 			var currentTags = new HashSet<TagIdentity>(interval.Zones);
 			var tagRanges = await _configDb.Tags.Get(interval.Namespace);
 			tagRanges = tagRanges.Where(_ => currentTags.Contains(_.Tag)).ToList();
 
-			var intervalCount = 0;
+			var result = new List<UnMovedChunk>();
 
 			foreach (var tagRange in tagRanges)
 			{
-				var validShards = _shards.Where(_ => _.Tags.Contains(tagRange.Tag)).Select(_ => _.Id).ToList();
+				var validShards = shards.Where(_ => _.Tags.Contains(tagRange.Tag)).Select(_ => _.Id).ToList();
 
 				var unMovedChunks = await (await _configDb.Chunks.ByNamespace(interval.Namespace)
 						.From(tagRange.Min).To(tagRange.Max).NoJumbo().ExcludeShards(validShards).Find())
@@ -51,44 +48,43 @@ namespace ShardEqualizer.Operations
 
 				if (unMovedChunks.Count == 0) continue;
 
-				_unMovedChunks.Add(new UnMovedChunk()
+				result.Add(new UnMovedChunk()
 				{
 					Namespace = interval.Namespace,
 					TagRange = tagRange.Tag,
 					Count = unMovedChunks.Count,
 					SourceShards = unMovedChunks.Select(_ => _.Shard).Distinct().Select(_ => $"'{_}'").ToList(),
 				});
-
-				intervalCount += unMovedChunks.Count;
 			}
 
-			return intervalCount;
+			reporter.Increment();
+			return result;
 		}
 
-		private ObservableTask scanIntervals(CancellationToken token)
+		private async Task<IList<UnMovedChunk>> scanIntervals(CancellationToken token)
 		{
-			return ObservableTask.WithParallels(
-				_intervals,
-				16,
-				scanInterval,
-				intervalCounts => { _totalUnMovedChunks = intervalCounts.Sum(); },
-				token);
+			var shards = await _allShardsSource.Get(token);
+
+			await using var reporter = _progressRenderer.Start("Scan intervals", _intervals.Count);
+
+			var unMovedChunksList = await _intervals.ParallelsAsync((interval, t) => scanInterval(interval, shards, reporter, t), 32, token);
+
+			var result = unMovedChunksList.SelectMany(_ => _).ToList();
+
+			var totalUnMovedChunks = result.Sum(_ => _.Count);
+
+			reporter.SetCompleteMessage(totalUnMovedChunks == 0
+				? "all chunks moved."
+				: $"found {totalUnMovedChunks} chunks is awaiting movement.");
+
+			return result;
 		}
 
 		public async Task Run(CancellationToken token)
 		{
-			_shards = await _allShardsSource.Get(token);
+			var unMovedChunks = await scanIntervals(token);
 
-			var opList = new WorkList()
-			{
-				{ "Scan intervals", new ObservableWork(scanIntervals, () => _totalUnMovedChunks == 0
-					? "all chunks moved."
-					: $"found {_totalUnMovedChunks} chunks is awaiting movement.")}
-			};
-
-			await opList.Apply(token);
-
-			foreach (var unMovedChunkGroup in _unMovedChunks.GroupBy(_ => _.Namespace).OrderBy(_ => _.Key.FullName))
+			foreach (var unMovedChunkGroup in unMovedChunks.GroupBy(_ => _.Namespace).OrderBy(_ => _.Key.FullName))
 			{
 				Console.WriteLine("{0}:", unMovedChunkGroup.Key);
 				foreach (var  unMovedChunk in unMovedChunkGroup.OrderBy(_ => _.TagRange))
