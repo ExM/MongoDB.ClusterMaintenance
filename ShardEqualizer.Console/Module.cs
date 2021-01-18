@@ -40,7 +40,6 @@ namespace ShardEqualizer
 			Bind<VersionRepository>().ToSelf().InSingletonScope()
 				.WithConstructorArgument(ctx => Kernel.Get<ConfigDBContainer>().MongoDatabase);
 
-			Bind<IConfigDbRepositoryProvider>().To<ConfigDbRepositoryProvider>().InSingletonScope();
 			Bind<IAdminDB>().To<AdminDB>().InSingletonScope();
 
 			Bind<ShardedCollectionService>().ToSelf().InSingletonScope();

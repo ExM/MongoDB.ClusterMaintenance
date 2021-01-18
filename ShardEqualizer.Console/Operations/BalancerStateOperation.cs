@@ -10,24 +10,24 @@ namespace ShardEqualizer.Operations
 {
 	public class BalancerStateOperation: IOperation
 	{
-		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly TagRangeService _tagRangeService;
+		private readonly ChunkRepository _chunkRepo;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ProgressRenderer _progressRenderer;
 
 		public BalancerStateOperation(
 			IDataSource<AllShards> allShardsSource,
 			TagRangeService tagRangeService,
-			IConfigDbRepositoryProvider configDb,
+			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer)
 		{
 			_allShardsSource = allShardsSource;
 			_tagRangeService = tagRangeService;
+			_chunkRepo = chunkRepo;
 			_intervals = intervals;
 			_progressRenderer = progressRenderer;
-			_configDb = configDb;
 		}
 
 		private async Task<IList<UnMovedChunk>> scanInterval(Interval interval, IReadOnlyCollection<Shard> shards,
@@ -44,7 +44,7 @@ namespace ShardEqualizer.Operations
 			{
 				var validShards = shards.Where(_ => _.Tags.Contains(tagRange.Tag)).Select(_ => _.Id).ToList();
 
-				var unMovedChunks = await (await _configDb.Chunks.ByNamespace(interval.Namespace)
+				var unMovedChunks = await (await _chunkRepo.ByNamespace(interval.Namespace)
 						.From(tagRange.Min).To(tagRange.Max).NoJumbo().ExcludeShards(validShards).Find())
 					.ToListAsync(token);
 

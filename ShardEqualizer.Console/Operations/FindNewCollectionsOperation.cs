@@ -16,9 +16,6 @@ namespace ShardEqualizer.Operations
 {
 	public class FindNewCollectionsOperation: IOperation
 	{
-		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-
-		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly ShardedCollectionService _shardedCollectionService;
@@ -35,14 +32,12 @@ namespace ShardEqualizer.Operations
 		public FindNewCollectionsOperation(
 			IDataSource<AllShards> allShardsSource,
 			ShardedCollectionService shardedCollectionService,
-			IConfigDbRepositoryProvider configDb,
 			IMongoClient mongoClient,
 			IReadOnlyList<Interval> intervals)
 		{
 			_allShardsSource = allShardsSource;
 			_shardedCollectionService = shardedCollectionService;
 			_intervals = intervals;
-			_configDb = configDb;
 			_mongoClient = mongoClient;
 		}
 

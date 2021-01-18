@@ -14,12 +14,10 @@ namespace ShardEqualizer.Operations
 {
 	public class MergeChunksOperation : IOperation
 	{
-		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly TagRangeService _tagRangeService;
-		private readonly IConfigDbRepositoryProvider _configDb;
+		private readonly ChunkRepository _chunkRepo;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private int _mergedChunks;
 		private IReadOnlyCollection<Shard> _shards;
@@ -30,13 +28,13 @@ namespace ShardEqualizer.Operations
 		public MergeChunksOperation(
 			IDataSource<AllShards> allShardsSource,
 			TagRangeService tagRangeService,
-			IConfigDbRepositoryProvider configDb,
+			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			CommandPlanWriter commandPlanWriter)
 		{
 			_allShardsSource = allShardsSource;
 			_tagRangeService = tagRangeService;
-			_configDb = configDb;
+			_chunkRepo = chunkRepo;
 			_commandPlanWriter = commandPlanWriter;
 
 			if (intervals.Count == 0)
@@ -49,7 +47,7 @@ namespace ShardEqualizer.Operations
 		{
 			var validShards = _shards.Where(_ => _.Tags.Contains(zone.TagRange.Tag)).Select(_ => _.Id).ToList();
 
-			var mergeCandidates = await (await _configDb.Chunks.ByNamespace(zone.Interval.Namespace)
+			var mergeCandidates = await (await _chunkRepo.ByNamespace(zone.Interval.Namespace)
 				.From(zone.TagRange.Min).To(zone.TagRange.Max).NoJumbo().ByShards(validShards).Find())
 				.ToListAsync(token);
 

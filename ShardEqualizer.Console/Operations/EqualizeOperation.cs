@@ -25,7 +25,8 @@ namespace ShardEqualizer.Operations
 		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
-		private readonly IConfigDbRepositoryProvider _configDb;
+		private readonly SettingsRepository _settingsRepo;
+		private readonly ChunkRepository _chunkRepo;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly long? _moveLimit;
@@ -37,7 +38,8 @@ namespace ShardEqualizer.Operations
 			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
-			IConfigDbRepositoryProvider configDb,
+			SettingsRepository settingsRepo,
+			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,
 			CommandPlanWriter commandPlanWriter,
@@ -49,7 +51,8 @@ namespace ShardEqualizer.Operations
 			_collStatSource = collStatSource;
 			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
-			_configDb = configDb;
+			_settingsRepo = settingsRepo;
+			_chunkRepo = chunkRepo;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
 			_moveLimit = moveLimit;
@@ -77,7 +80,7 @@ namespace ShardEqualizer.Operations
 
 		private async Task getChunkSize(CancellationToken token)
 		{
-			_chunkSize = await _configDb.Settings.GetChunksize();
+			_chunkSize = await _settingsRepo.GetChunksize();
 		}
 
 		private ObservableTask loadAllCollChunks(CancellationToken token)
@@ -88,7 +91,7 @@ namespace ShardEqualizer.Operations
 
 			async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
 			{
-				var allChunks = await (await _configDb.Chunks
+				var allChunks = await (await _chunkRepo
 					.ByNamespace(interval.Namespace)
 					.From(interval.Min)
 					.To(interval.Max)

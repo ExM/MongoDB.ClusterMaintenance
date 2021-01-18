@@ -19,7 +19,7 @@ namespace ShardEqualizer.Operations
 		private readonly bool _renew;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
-		private readonly IConfigDbRepositoryProvider _configDb;
+		private readonly ChunkRepository _chunkRepo;
 
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionByNs;
@@ -28,7 +28,7 @@ namespace ShardEqualizer.Operations
 		public PresplitDataOperation(
 			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
-			IConfigDbRepositoryProvider configDb,
+			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter,
@@ -36,7 +36,7 @@ namespace ShardEqualizer.Operations
 		{
 			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
-			_configDb = configDb;
+			_chunkRepo = chunkRepo;
 			_intervals = intervals;
 			_progressRenderer = progressRenderer;
 			_commandPlanWriter = commandPlanWriter;
@@ -58,7 +58,7 @@ namespace ShardEqualizer.Operations
 			{
 				if (interval.Min.HasValue && interval.Max.HasValue)
 				{
-					var totalChunks = await _configDb.Chunks
+					var totalChunks = await _chunkRepo
 						.ByNamespace(interval.Namespace)
 						.From(interval.Min)
 						.To(interval.Max).Count();
@@ -185,7 +185,7 @@ namespace ShardEqualizer.Operations
 			if (collInfo == null)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
 
-			var filtered = _configDb.Chunks
+			var filtered = _chunkRepo
 				.ByNamespace(interval.Namespace)
 				.From(interval.Min)
 				.To(interval.Max);

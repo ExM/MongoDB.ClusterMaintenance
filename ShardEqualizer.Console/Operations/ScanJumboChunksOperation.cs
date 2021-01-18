@@ -14,10 +14,10 @@ namespace ShardEqualizer.Operations
 {
 	public class ScanJumboChunksOperation : IOperation
 	{
-		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ShardedCollectionService _shardedCollectionService;
+		private readonly ChunkRepository _chunkRepo;
 		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _collectionsInfo;
 		private List<Chunk> _jumboChunks;
 		private ConcurrentBag<ChunkDataSize> _chunkDataSizes = new ConcurrentBag<ChunkDataSize>();
@@ -26,10 +26,9 @@ namespace ShardEqualizer.Operations
 		public ScanJumboChunksOperation(
 			IReadOnlyList<Interval> intervals,
 			ShardedCollectionService shardedCollectionService,
-			IConfigDbRepositoryProvider configDb,
+			ChunkRepository chunkRepo,
 			IMongoClient mongoClient)
 		{
-			_configDb = configDb;
 			_mongoClient = mongoClient;
 
 			if (intervals.Count == 0)
@@ -37,13 +36,14 @@ namespace ShardEqualizer.Operations
 
 			_intervals = intervals;
 			_shardedCollectionService = shardedCollectionService;
+			_chunkRepo = chunkRepo;
 		}
 
 		private ObservableTask findJumboChunks(CancellationToken token)
 		{
 			async Task<List<Chunk>> loadCollChunks(Interval interval, CancellationToken t)
 			{
-				var allChunks = await (await _configDb.Chunks
+				var allChunks = await (await _chunkRepo
 					.ByNamespace(interval.Namespace)
 					.From(interval.Min)
 					.To(interval.Max)

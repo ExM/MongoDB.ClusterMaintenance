@@ -17,12 +17,12 @@ namespace ShardEqualizer.Operations
 	{
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
-		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly List<long> _sizeBounds;
 		private readonly IEnumerable<string> _headers;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ShardedCollectionService _shardedCollectionService;
+		private readonly ChunkRepository _chunkRepo;
 		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _collectionsInfo;
 		private int _totalChunks;
 		private Dictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
@@ -30,11 +30,10 @@ namespace ShardEqualizer.Operations
 		public ScanChunksOperation(
 			IReadOnlyList<Interval> intervals,
 			ShardedCollectionService shardedCollectionService,
-			IConfigDbRepositoryProvider configDb,
+			ChunkRepository chunkRepo,
 			IMongoClient mongoClient,
 			IList<string> sizeLabels)
 		{
-			_configDb = configDb;
 			_mongoClient = mongoClient;
 
 			_sizeBounds = sizeLabels.Select(BinaryPrefix.Parse).ToList();
@@ -45,13 +44,14 @@ namespace ShardEqualizer.Operations
 
 			_intervals = intervals;
 			_shardedCollectionService = shardedCollectionService;
+			_chunkRepo = chunkRepo;
 		}
 
 		private ObservableTask loadAllCollChunks(CancellationToken token)
 		{
 			async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
 			{
-				var allChunks = await (await _configDb.Chunks
+				var allChunks = await (await _chunkRepo
 					.ByNamespace(interval.Namespace)
 					.From(interval.Min)
 					.To(interval.Max)
