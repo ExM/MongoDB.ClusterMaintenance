@@ -18,8 +18,8 @@ namespace ShardEqualizer.Operations
 
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly TagRangeService _tagRangeService;
 		private readonly IConfigDbRepositoryProvider _configDb;
-		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private int _mergedChunks;
 		private IReadOnlyCollection<Shard> _shards;
@@ -29,44 +29,20 @@ namespace ShardEqualizer.Operations
 
 		public MergeChunksOperation(
 			IDataSource<AllShards> allShardsSource,
+			TagRangeService tagRangeService,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
-			IMongoClient mongoClient,
 			CommandPlanWriter commandPlanWriter)
 		{
 			_allShardsSource = allShardsSource;
+			_tagRangeService = tagRangeService;
 			_configDb = configDb;
-			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
 
 			if (intervals.Count == 0)
 				throw new ArgumentException("interval list is empty");
 
 			_intervals = intervals;
-		}
-
-		private async Task<(Interval interval, IList<TagRange> tagRanges)> loadTag(Interval interval, CancellationToken token)
-		{
-			var currentTags = new HashSet<TagIdentity>(interval.Zones);
-
-			var tagRanges = (await _configDb.Tags.Get(interval.Namespace))
-				.Where(_ => currentTags.Contains(_.Tag))
-				.ToList();
-
-			return (interval, tagRanges);
-		}
-
-		private ObservableTask loadTags(CancellationToken token)
-		{
-			return ObservableTask.WithParallels(
-				_intervals,
-				16,
-				loadTag,
-				loadedTags =>
-				{
-					_mergeZones = loadedTags.SelectMany(_ => _.tagRanges.Select(tagRange => new MergeZone(_.interval, tagRange))).ToList();
-				},
-				token);
 		}
 
 		private async Task mergeInterval(MergeZone zone, CancellationToken token)
@@ -144,10 +120,15 @@ namespace ShardEqualizer.Operations
 		public async Task Run(CancellationToken token)
 		{
 			_shards = await _allShardsSource.Get(token);
+			var tagRangesByNs = await _tagRangeService.Get(_intervals.Select(_ => _.Namespace), token);
+
+			_mergeZones = _intervals
+				.SelectMany(interval => tagRangesByNs[interval.Namespace].Select(tagRange => new {interval, tagRange}))
+				.Select(_ => new MergeZone(_.interval, _.tagRange))
+				.ToList();
 
 			var opList = new WorkList()
 			{
-				{ "Load tags", new ObservableWork(loadTags, () => $"found {_mergeZones.Count} tag ranges.")},
 				{ "Merge intervals", new ObservableWork(mergeIntervals, () => _mergedChunks == 0
 					? "No chunks to merge."
 					: $"Merged {_mergedChunks} chunks.")},

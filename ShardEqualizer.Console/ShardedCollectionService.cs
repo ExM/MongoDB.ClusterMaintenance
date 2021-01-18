@@ -42,7 +42,7 @@ namespace ShardEqualizer
 			if (_map == null)
 			{
 				await using var reporter = _progressRenderer.Start("Load sharded collections");
-				var result = await _repo.FindAll(false, token); //UNDONE maybe skip dropped items
+				var result = await _repo.FindAll(false, token); //TODO maybe skip dropped items
 				reporter.SetCompleteMessage($"found {result.Count} collections.");
 
 				_map = result.ToDictionary(_ => _.Id);

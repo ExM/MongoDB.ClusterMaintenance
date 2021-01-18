@@ -24,6 +24,7 @@ namespace ShardEqualizer.Operations
 		private readonly IDataSource<AllShards> _allShardsSource;
 		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly ShardedCollectionService _shardedCollectionService;
+		private readonly TagRangeService _tagRangeService;
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -35,6 +36,7 @@ namespace ShardEqualizer.Operations
 			IDataSource<AllShards> allShardsSource,
 			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			ShardedCollectionService shardedCollectionService,
+			TagRangeService tagRangeService,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,
@@ -46,6 +48,7 @@ namespace ShardEqualizer.Operations
 			_allShardsSource = allShardsSource;
 			_collStatSource = collStatSource;
 			_shardedCollectionService = shardedCollectionService;
+			_tagRangeService = tagRangeService;
 			_configDb = configDb;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
@@ -68,31 +71,13 @@ namespace ShardEqualizer.Operations
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
 		private ZoneOptimizationSolve _solve;
-		private Dictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
+		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
 		private readonly WorkList _equalizeList = new WorkList();
 		private TotalEqualizeReporter _totalEqualizeReporter;
 
 		private async Task getChunkSize(CancellationToken token)
 		{
 			_chunkSize = await _configDb.Settings.GetChunksize();
-		}
-
-		private ObservableTask loadAllTagRanges(CancellationToken token)
-		{
-			async Task<IReadOnlyList<TagRange>> loadTagRanges(Interval interval, CancellationToken t)
-			{
-				var tagRanges = await _configDb.Tags.Get(interval.Namespace, interval.Min, interval.Max);
-				if(tagRanges.Count <= 1)
-					throw new Exception($"interval {interval.Namespace} less than two tag ranges");
-				return tagRanges;
-			}
-
-			return ObservableTask.WithParallels(
-				_intervals.Where(_ => _.Correction != CorrectionMode.None).ToList(),
-				16,
-				loadTagRanges,
-				allTagRanges => { _tagRangesByNs = allTagRanges.ToDictionary(_ => _.First().Namespace, _ => _); },
-				token);
 		}
 
 		private ObservableTask loadAllCollChunks(CancellationToken token)
@@ -355,10 +340,14 @@ namespace ShardEqualizer.Operations
 				.Distinct()
 				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 
+			var allTagRangesByNs =  await _tagRangeService.Get(_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_ => _.Namespace), token);
+
+			_tagRangesByNs = _intervals.Where(_ => _.Correction != CorrectionMode.None)
+				.ToDictionary(_ => _.Namespace, _ => allTagRangesByNs[_.Namespace].InRange(_.Min, _.Max));
+
 			var opList = new WorkList()
 			{
 				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
-				{ "Load tag ranges", new ObservableWork(loadAllTagRanges)},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
 				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
 				{ "Find solution", findSolution},

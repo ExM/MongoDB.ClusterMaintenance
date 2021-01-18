@@ -12,25 +12,30 @@ namespace ShardEqualizer.Operations
 	{
 		private readonly IConfigDbRepositoryProvider _configDb;
 		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly TagRangeService _tagRangeService;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ProgressRenderer _progressRenderer;
 
 		public BalancerStateOperation(
 			IDataSource<AllShards> allShardsSource,
+			TagRangeService tagRangeService,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer)
 		{
 			_allShardsSource = allShardsSource;
+			_tagRangeService = tagRangeService;
 			_intervals = intervals;
 			_progressRenderer = progressRenderer;
 			_configDb = configDb;
 		}
 
-		private async Task<IList<UnMovedChunk>> scanInterval(Interval interval, IReadOnlyCollection<Shard> shards, ProgressReporter reporter, CancellationToken token)
+		private async Task<IList<UnMovedChunk>> scanInterval(Interval interval, IReadOnlyCollection<Shard> shards,
+			IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> tagRangesByNs, ProgressReporter reporter,
+			CancellationToken token)
 		{
 			var currentTags = new HashSet<TagIdentity>(interval.Zones);
-			var tagRanges = await _configDb.Tags.Get(interval.Namespace);
+			var tagRanges = tagRangesByNs[interval.Namespace];
 			tagRanges = tagRanges.Where(_ => currentTags.Contains(_.Tag)).ToList();
 
 			var result = new List<UnMovedChunk>();
@@ -61,10 +66,11 @@ namespace ShardEqualizer.Operations
 		private async Task<IList<UnMovedChunk>> scanIntervals(CancellationToken token)
 		{
 			var shards = await _allShardsSource.Get(token);
+			var tagRangesByNs = await _tagRangeService.Get(_intervals.Select(_ => _.Namespace), token);
 
 			await using var reporter = _progressRenderer.Start("Scan intervals", _intervals.Count);
 
-			var unMovedChunksList = await _intervals.ParallelsAsync((interval, t) => scanInterval(interval, shards, reporter, t), 32, token);
+			var unMovedChunksList = await _intervals.ParallelsAsync((interval, t) => scanInterval(interval, shards, tagRangesByNs, reporter, t), 32, token);
 
 			var result = unMovedChunksList.SelectMany(_ => _).ToList();
 

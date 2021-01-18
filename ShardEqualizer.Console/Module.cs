@@ -44,6 +44,8 @@ namespace ShardEqualizer
 			Bind<IAdminDB>().To<AdminDB>().InSingletonScope();
 
 			Bind<ShardedCollectionService>().ToSelf().InSingletonScope();
+			Bind<TagRangeService>().ToSelf().InSingletonScope();
+
 
 			Bind<IDataSource<UserDatabases>>().To<UserDatabasesSource>().InSingletonScope();
 			Bind<IDataSource<UserCollections>>().To<UserCollectionsSource>().InSingletonScope();

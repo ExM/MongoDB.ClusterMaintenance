@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MongoDB.Driver;
+using ShardEqualizer.Models;
 
 namespace ShardEqualizer
 {
@@ -100,6 +102,19 @@ namespace ShardEqualizer
 			}
 
 			await Task.WhenAll(collTasks);
+		}
+
+		public static IReadOnlyList<TagRange> InRange(this IReadOnlyList<TagRange> tagRanges, BsonBound? intL, BsonBound? intR)
+		{
+			if(intL.HasValue && intR.HasValue)
+				tagRanges = tagRanges.Where(r => crossInterval(intL.Value, intR.Value, r.Min, r.Max)).ToList();
+
+			return tagRanges;
+		}
+
+		private static bool crossInterval(BsonBound intL, BsonBound intR, BsonBound chL, BsonBound chR)
+		{
+			return chL <= intR  && intL < chR;
 		}
 	}
 }

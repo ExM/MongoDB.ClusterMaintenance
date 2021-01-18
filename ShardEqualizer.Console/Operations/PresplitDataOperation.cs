@@ -18,13 +18,16 @@ namespace ShardEqualizer.Operations
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly bool _renew;
 		private readonly ShardedCollectionService _shardedCollectionService;
+		private readonly TagRangeService _tagRangeService;
 		private readonly IConfigDbRepositoryProvider _configDb;
 
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionByNs;
+		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
 
 		public PresplitDataOperation(
 			ShardedCollectionService shardedCollectionService,
+			TagRangeService tagRangeService,
 			IConfigDbRepositoryProvider configDb,
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer,
@@ -32,6 +35,7 @@ namespace ShardEqualizer.Operations
 			bool renew)
 		{
 			_shardedCollectionService = shardedCollectionService;
+			_tagRangeService = tagRangeService;
 			_configDb = configDb;
 			_intervals = intervals;
 			_progressRenderer = progressRenderer;
@@ -44,7 +48,8 @@ namespace ShardEqualizer.Operations
 			_intervals = intervals;
 		}
 
-		private async Task createPresplitCommandForInterval(Interval interval, ProgressReporter reporter,
+		private async Task createPresplitCommandForInterval(Interval interval,
+			ProgressReporter reporter,
 			CancellationToken token)
 		{
 			var preSplit = interval.PreSplit;
@@ -116,6 +121,8 @@ namespace ShardEqualizer.Operations
 		{
 			_shardedCollectionByNs = await _shardedCollectionService.Get(token);
 
+			_tagRangesByNs =  await _tagRangeService.Get(_intervals.Select(_ => _.Namespace), token);
+
 			await using var reporter = _progressRenderer.Start("Create presplit commands", _intervals.Count);
 
 			await _intervals.ParallelsAsync((interval, t) => createPresplitCommandForInterval(interval, reporter, t), 32, token);
@@ -123,7 +130,7 @@ namespace ShardEqualizer.Operations
 
 		private async Task<bool> removeOldTagRangesIfRequired(Interval interval, TagRangeCommandBuffer buffer)
 		{
-			var tagRanges = await _configDb.Tags.Get(interval.Namespace, interval.Min, interval.Max);
+			var tagRanges = _tagRangesByNs[interval.Namespace].InRange(interval.Min, interval.Max);
 
 			if (!_renew && tagRanges.Select(_ => _.Tag).SequenceEqual(interval.Zones))
 			{
