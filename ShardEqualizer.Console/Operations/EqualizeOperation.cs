@@ -25,7 +25,7 @@ namespace ShardEqualizer.Operations
 		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
-		private readonly SettingsRepository _settingsRepo;
+		private readonly ClusterSettingsService _clusterSettingsService;
 		private readonly ChunkRepository _chunkRepo;
 		private readonly IMongoClient _mongoClient;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -38,7 +38,7 @@ namespace ShardEqualizer.Operations
 			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
-			SettingsRepository settingsRepo,
+			ClusterSettingsService clusterSettingsService,
 			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,
@@ -51,7 +51,7 @@ namespace ShardEqualizer.Operations
 			_collStatSource = collStatSource;
 			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
-			_settingsRepo = settingsRepo;
+			_clusterSettingsService = clusterSettingsService;
 			_chunkRepo = chunkRepo;
 			_mongoClient = mongoClient;
 			_commandPlanWriter = commandPlanWriter;
@@ -77,11 +77,6 @@ namespace ShardEqualizer.Operations
 		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
 		private readonly WorkList _equalizeList = new WorkList();
 		private TotalEqualizeReporter _totalEqualizeReporter;
-
-		private async Task getChunkSize(CancellationToken token)
-		{
-			_chunkSize = await _settingsRepo.GetChunksize();
-		}
 
 		private ObservableTask loadAllCollChunks(CancellationToken token)
 		{
@@ -334,6 +329,7 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
+			_chunkSize = await _clusterSettingsService.GetChunkSize(token);
 			_collStatsMap = await _collStatSource.Get(token);
 			_shards = await _allShardsSource.Get(token);
 			_shardedCollectionInfoByNs = await _shardedCollectionService.Get(token);
@@ -350,7 +346,6 @@ namespace ShardEqualizer.Operations
 
 			var opList = new WorkList()
 			{
-				{ "Get chunk size", new SingleWork(getChunkSize, () => _chunkSize.ByteSize())},
 				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
 				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
 				{ "Find solution", findSolution},
