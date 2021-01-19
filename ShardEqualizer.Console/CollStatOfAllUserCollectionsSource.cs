@@ -11,9 +11,9 @@ namespace ShardEqualizer
 	{
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly CollectionStatisticService _collStatsService;
-		private readonly IDataSource<UserCollections> _sourceUserCollections;
+		private readonly CollectionListService _sourceUserCollections;
 
-		public CollStatOfAllUserCollectionsSource(ProgressRenderer progressRenderer, CollectionStatisticService collStatsService, IDataSource<UserCollections> sourceUserCollections)
+		public CollStatOfAllUserCollectionsSource(ProgressRenderer progressRenderer, CollectionStatisticService collStatsService, CollectionListService sourceUserCollections)
 		{
 			_progressRenderer = progressRenderer;
 			_collStatsService = collStatsService;

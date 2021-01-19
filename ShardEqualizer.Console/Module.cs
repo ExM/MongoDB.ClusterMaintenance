@@ -18,7 +18,6 @@ namespace ShardEqualizer
 			Bind<IAsyncDisposable, ProgressRenderer>().To<ProgressRenderer>().InSingletonScope();
 
 			Bind<CollStatsLocalStore>().ToSelf().InSingletonScope();
-			Bind<UserCollectionsLocalStore>().ToSelf().InSingletonScope();
 
 			Bind<LocalStoreProvider>().ToSelf().InSingletonScope();
 
@@ -46,10 +45,8 @@ namespace ShardEqualizer
 			Bind<TagRangeService>().ToSelf().InSingletonScope();
 			Bind<ClusterSettingsService>().ToSelf().InSingletonScope();
 			Bind<ShardListService>().ToSelf().InSingletonScope();
+			Bind<CollectionListService>().ToSelf().InSingletonScope();
 
-
-			Bind<IDataSource<UserDatabases>>().To<UserDatabasesSource>().InSingletonScope();
-			Bind<IDataSource<UserCollections>>().To<UserCollectionsSource>().InSingletonScope();
 			Bind<IDataSource<CollStatOfAllUserCollections>>().To<CollStatOfAllUserCollectionsSource>().InSingletonScope();
 		}
 	}

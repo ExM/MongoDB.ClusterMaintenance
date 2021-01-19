@@ -8,11 +8,6 @@ namespace ShardEqualizer
 {
 	public class ProgressReporter: IAsyncDisposable
 	{
-		public long Completed { get; private set; }
-		public long Total { get; private set; }
-		public TimeSpan Elapsed { get; private set; }
-		public TimeSpan Left { get; private set; }
-
 		public ProgressReporter(string title, long total)
 		{
 			_title = title;
@@ -20,40 +15,44 @@ namespace ShardEqualizer
 			_sw = Stopwatch.StartNew();
 		}
 
-		public void Refresh()
+		public void UpdateTotal(long total)
 		{
-			Total = _total;
-			Completed = Interlocked.Read(ref _completed);
-			Elapsed = _sw.Elapsed;
-
-			if (Total <= Completed)
-				Left = TimeSpan.Zero;
-			else if(Completed == 0)
-				Left = TimeSpan.MaxValue;
-			else
-			{
-				var leftPercent = (double) (Total - Completed) / Completed;
-				Left = TimeSpan.FromSeconds(Elapsed.TotalSeconds * leftPercent);
-			}
+			Interlocked.Add(ref _total, total);
 		}
 
 		public IEnumerable<string> RenderLines()
 		{
-			Refresh();
+			var total = Interlocked.Read(ref _total);
+			var completed = Interlocked.Read(ref _completed);
+			var elapsed = _sw.Elapsed;
+			TimeSpan left;
+
+
+			if (total <= completed)
+				left = TimeSpan.Zero;
+			else if(completed == 0)
+				left = TimeSpan.MaxValue;
+			else
+			{
+				var leftPercent = (double) (total - completed) / completed;
+				left = TimeSpan.FromSeconds(elapsed.TotalSeconds * leftPercent);
+			}
+
+
 			if (IsCompleted)
 				return new[] {$"{_title} ... {_completeMessage}"};
 
-			if(Total == 0)
+			if(total == 0)
 				return new[]
 				{
 					$"{_title} ...",
-					$"# Elapsed: {Elapsed:d\\.hh\\:mm\\:ss\\.f}"
+					$"# Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f}"
 				};
 
 			return new[]
 			{
 				$"{_title} ...",
-				$"# Progress: {Completed}/{Total} Elapsed: {Elapsed:d\\.hh\\:mm\\:ss\\.f} Left: {Left:d\\.hh\\:mm\\:ss\\.f}"
+				$"# Progress: {completed}/{total} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} Left: {left:d\\.hh\\:mm\\:ss\\.f}"
 			};
 		}
 
@@ -72,7 +71,7 @@ namespace ShardEqualizer
 		private long _completed;
 		private string _completeMessage;
 		private readonly string _title;
-		private readonly long _total;
+		private long _total;
 		private readonly Stopwatch _sw;
 
 		private readonly TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
