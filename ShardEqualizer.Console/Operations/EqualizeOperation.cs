@@ -21,7 +21,7 @@ namespace ShardEqualizer.Operations
 		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
 
 		private readonly IReadOnlyList<Interval> _intervals;
-		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly ShardListService _shardListService;
 		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
@@ -34,7 +34,7 @@ namespace ShardEqualizer.Operations
 		private readonly bool _planOnly;
 
 		public EqualizeOperation(
-			IDataSource<AllShards> allShardsSource,
+			ShardListService shardListService,
 			IDataSource<CollStatOfAllUserCollections> collStatSource,
 			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
@@ -47,7 +47,7 @@ namespace ShardEqualizer.Operations
 			DebugDirectory debugDirectory,
 			bool planOnly)
 		{
-			_allShardsSource = allShardsSource;
+			_shardListService = shardListService;
 			_collStatSource = collStatSource;
 			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
@@ -331,7 +331,7 @@ namespace ShardEqualizer.Operations
 		{
 			_chunkSize = await _clusterSettingsService.GetChunkSize(token);
 			_collStatsMap = await _collStatSource.Get(token);
-			_shards = await _allShardsSource.Get(token);
+			_shards = await _shardListService.Get(token);
 			_shardedCollectionInfoByNs = await _shardedCollectionService.Get(token);
 
 			_shardByTag =  _intervals

@@ -15,7 +15,7 @@ namespace ShardEqualizer.Operations
 	public class MergeChunksOperation : IOperation
 	{
 		private readonly IReadOnlyList<Interval> _intervals;
-		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly ShardListService _shardListService;
 		private readonly TagRangeService _tagRangeService;
 		private readonly ChunkRepository _chunkRepo;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -26,13 +26,13 @@ namespace ShardEqualizer.Operations
 		private ConcurrentBag<MergeCommand> _mergeCommands = new ConcurrentBag<MergeCommand>();
 
 		public MergeChunksOperation(
-			IDataSource<AllShards> allShardsSource,
+			ShardListService shardListService,
 			TagRangeService tagRangeService,
 			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			CommandPlanWriter commandPlanWriter)
 		{
-			_allShardsSource = allShardsSource;
+			_shardListService = shardListService;
 			_tagRangeService = tagRangeService;
 			_chunkRepo = chunkRepo;
 			_commandPlanWriter = commandPlanWriter;
@@ -117,7 +117,7 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
-			_shards = await _allShardsSource.Get(token);
+			_shards = await _shardListService.Get(token);
 			var tagRangesByNs = await _tagRangeService.Get(_intervals.Select(_ => _.Namespace), token);
 
 			_mergeZones = _intervals

@@ -17,7 +17,7 @@ namespace ShardEqualizer.Operations
 	public class FindNewCollectionsOperation: IOperation
 	{
 		private readonly IMongoClient _mongoClient;
-		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly ShardListService _shardListService;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly JsonWriterSettings _jsonWriterSettings = new JsonWriterSettings()
@@ -30,18 +30,18 @@ namespace ShardEqualizer.Operations
 		private IReadOnlyList<NewShardedCollection> _newShardedCollection;
 
 		public FindNewCollectionsOperation(
-			IDataSource<AllShards> allShardsSource,
+			ShardListService shardListService,
 			ShardedCollectionService shardedCollectionService,
 			IMongoClient mongoClient,
 			IReadOnlyList<Interval> intervals)
 		{
-			_allShardsSource = allShardsSource;
+			_shardListService = shardListService;
 			_shardedCollectionService = shardedCollectionService;
 			_intervals = intervals;
 			_mongoClient = mongoClient;
 		}
 
-		private void analizeIntervals(CancellationToken token)
+		private void analyseIntervals()
 		{
 			foreach (var ns in _intervals.Select(_ => _.Namespace))
 			{
@@ -67,6 +67,8 @@ namespace ShardEqualizer.Operations
 
 		private ObservableTask loadCollectionStatistics(CancellationToken token)
 		{
+			//UNDONE
+
 			async Task<NewShardedCollection> runCollStats(ShardedCollectionInfo shardedCollection, CancellationToken t)
 			{
 				var ns = shardedCollection.Id;
@@ -90,7 +92,7 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
-			_shards = await _allShardsSource.Get(token);
+			_shards = await _shardListService.Get(token);
 			_shardedCollections = new Dictionary<CollectionNamespace, ShardedCollectionInfo>(
 				await _shardedCollectionService.Get(token));
 
@@ -101,13 +103,9 @@ namespace ShardEqualizer.Operations
 
 			_defaultZones = string.Join(",", _allShardNames);
 
-			var opList = new WorkList()
-			{
-				{ "Analyse of loaded data", analizeIntervals},
-				{ "Load collection statistics", new ObservableWork(loadCollectionStatistics)},
-			};
+			analyseIntervals();
 
-			await opList.Apply(token);
+			await loadCollectionStatistics(token).Task; //UNDONE
 
 			if (_newShardedCollection.Count == 0)
 			{

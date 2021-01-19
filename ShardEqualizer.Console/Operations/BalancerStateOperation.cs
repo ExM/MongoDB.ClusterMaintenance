@@ -10,20 +10,20 @@ namespace ShardEqualizer.Operations
 {
 	public class BalancerStateOperation: IOperation
 	{
-		private readonly IDataSource<AllShards> _allShardsSource;
+		private readonly ShardListService _shardListService;
 		private readonly TagRangeService _tagRangeService;
 		private readonly ChunkRepository _chunkRepo;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ProgressRenderer _progressRenderer;
 
 		public BalancerStateOperation(
-			IDataSource<AllShards> allShardsSource,
+			ShardListService shardListService,
 			TagRangeService tagRangeService,
 			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer)
 		{
-			_allShardsSource = allShardsSource;
+			_shardListService = shardListService;
 			_tagRangeService = tagRangeService;
 			_chunkRepo = chunkRepo;
 			_intervals = intervals;
@@ -65,7 +65,7 @@ namespace ShardEqualizer.Operations
 
 		private async Task<IList<UnMovedChunk>> scanIntervals(CancellationToken token)
 		{
-			var shards = await _allShardsSource.Get(token);
+			var shards = await _shardListService.Get(token);
 			var tagRangesByNs = await _tagRangeService.Get(_intervals.Select(_ => _.Namespace), token);
 
 			await using var reporter = _progressRenderer.Start("Scan intervals", _intervals.Count);

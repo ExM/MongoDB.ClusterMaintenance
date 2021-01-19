@@ -21,7 +21,7 @@ namespace ShardEqualizer.LocalStoring
 			_readStore = localStoreConfig.ResetStore != true;
 		}
 
-		public LocalStore<T> Create<T>(string storeName, Action<T> onSave) where T : Container, new()
+		public LocalStore<T> Create<T>(string storeName, Action<T> onSave = null) where T : Container, new()
 		{
 			var fileName = Path.Combine(_path, storeName + ".json");
 			T container;

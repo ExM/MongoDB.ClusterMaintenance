@@ -20,14 +20,14 @@ namespace ShardEqualizer.LocalStoring
 
 		protected override Container GetUpdatedContainer()
 		{
-			_onSave(Container);
+			_onSave?.Invoke(Container);
 			return Container;
 		}
 	}
 
 	public abstract class LocalStore
 	{
-		private static JsonWriterSettings _jsonWriterSettings =
+		private static readonly JsonWriterSettings _jsonWriterSettings =
 			new JsonWriterSettings() {Indent = true, OutputMode = JsonOutputMode.CanonicalExtendedJson};
 
 		private readonly string _fileName;
