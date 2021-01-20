@@ -41,7 +41,6 @@ namespace ShardEqualizer
 
 			var parsed = Parser.Default.ParseArguments<
 				FindNewCollectionsVerb,
-				ScanChunksVerb,
 				ScanJumboChunksVerb,
 				MergeChunksVerb,
 				PresplitDataVerb,

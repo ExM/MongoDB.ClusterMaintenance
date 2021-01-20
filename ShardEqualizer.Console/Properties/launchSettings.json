@@ -24,6 +24,10 @@
       "commandName": "Project",
       "commandLineArgs": "equalize --planOnly"
     },
+    "equalize": {
+      "commandName": "Project",
+      "commandLineArgs": "equalize --moveLimit=100"
+    },
     "merge": {
       "commandName": "Project",
       "commandLineArgs": "merge"

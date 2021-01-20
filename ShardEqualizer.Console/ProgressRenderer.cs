@@ -12,6 +12,7 @@ namespace ShardEqualizer
 		private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 		private readonly Task _renderTask;
 		private readonly object _sync = new object();
+		private readonly object _syncRender = new object();
 		private readonly List<ProgressReporter> _reporters = new List<ProgressReporter>();
 		private readonly List<string> _logLines = new List<string>();
 		private IConsoleBookmark _frame;
@@ -25,7 +26,8 @@ namespace ShardEqualizer
 		{
 			while (!token.IsCancellationRequested)
 			{
-				renderReporterList();
+				lock (_syncRender)
+					renderReporterList();
 
 				try
 				{
@@ -36,6 +38,12 @@ namespace ShardEqualizer
 					break;
 				}
 			}
+		}
+
+		public void Flush()
+		{
+			lock (_syncRender)
+				renderReporterList();
 		}
 
 		private void renderReporterList()
@@ -138,7 +146,7 @@ namespace ShardEqualizer
 			return reporter;
 		}
 
-		public void Write(string line)
+		public void WriteLine(string line = "")
 		{
 			lock (_sync)
 				_logLines.Add(line);

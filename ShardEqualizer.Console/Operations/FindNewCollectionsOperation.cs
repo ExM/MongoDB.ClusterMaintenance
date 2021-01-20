@@ -10,6 +10,7 @@ using MongoDB.Driver;
 using NLog;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 using ShardEqualizer.WorkFlow;
 
 namespace ShardEqualizer.Operations
@@ -19,6 +20,7 @@ namespace ShardEqualizer.Operations
 		private readonly IMongoClient _mongoClient;
 		private readonly ShardListService _shardListService;
 		private readonly ShardedCollectionService _shardedCollectionService;
+		private readonly CollectionStatisticService _collectionStatisticService;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly JsonWriterSettings _jsonWriterSettings = new JsonWriterSettings()
 			{Indent = false, GuidRepresentation = GuidRepresentation.Unspecified, OutputMode = JsonOutputMode.Shell};
@@ -32,11 +34,13 @@ namespace ShardEqualizer.Operations
 		public FindNewCollectionsOperation(
 			ShardListService shardListService,
 			ShardedCollectionService shardedCollectionService,
+			CollectionStatisticService collectionStatisticService,
 			IMongoClient mongoClient,
 			IReadOnlyList<Interval> intervals)
 		{
 			_shardListService = shardListService;
 			_shardedCollectionService = shardedCollectionService;
+			_collectionStatisticService = collectionStatisticService;
 			_intervals = intervals;
 			_mongoClient = mongoClient;
 		}
@@ -65,31 +69,6 @@ namespace ShardEqualizer.Operations
 			}
 		}
 
-		private ObservableTask loadCollectionStatistics(CancellationToken token)
-		{
-			//UNDONE
-
-			async Task<NewShardedCollection> runCollStats(ShardedCollectionInfo shardedCollection, CancellationToken t)
-			{
-				var ns = shardedCollection.Id;
-				var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-				var collStats = await db.CollStats(ns.CollectionName, 1, t);
-
-				return new NewShardedCollection()
-				{
-					Info = shardedCollection,
-					Stats = collStats
-				};
-			}
-
-			return ObservableTask.WithParallels(
-				_shardedCollections.Values.ToList(),
-				32,
-				runCollStats,
-				newShardedCollection => { _newShardedCollection = newShardedCollection; },
-				token);
-		}
-
 		public async Task Run(CancellationToken token)
 		{
 			_shards = await _shardListService.Get(token);
@@ -99,13 +78,21 @@ namespace ShardEqualizer.Operations
 			_allShardNames = _shards
 				.Select(_ => _.Id.ToString())
 				.OrderBy(_ => _)
-				.ToList();
+				.ToList(); //UNDONE find single tag by shard
 
 			_defaultZones = string.Join(",", _allShardNames);
 
 			analyseIntervals();
 
-			await loadCollectionStatistics(token).Task; //UNDONE
+			var collStats = await _collectionStatisticService.Get(_shardedCollections.Keys, token);
+
+			_newShardedCollection = _shardedCollections.Keys
+				.Select(_ => new NewShardedCollection()
+				{
+					Info = _shardedCollections[_],
+					Stats = collStats[_]
+				})
+				.ToList();
 
 			if (_newShardedCollection.Count == 0)
 			{
@@ -143,7 +130,7 @@ namespace ShardEqualizer.Operations
 		public class NewShardedCollection
 		{
 			public ShardedCollectionInfo Info { get; set; }
-			public CollStatsResult Stats { get; set; }
+			public CollectionStatistics Stats { get; set; }
 		}
 	}
 }

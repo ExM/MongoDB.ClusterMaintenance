@@ -3,33 +3,30 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using MongoDB.Driver;
-using NLog;
-using ShardEqualizer.MongoCommands;
 using ShardEqualizer.Reporting;
 using ShardEqualizer.Verbs;
-using ShardEqualizer.WorkFlow;
 
 namespace ShardEqualizer.Operations
 {
 	public class DeviationOperation: IOperation
 	{
-		private static readonly Logger _log = LogManager.GetCurrentClassLogger();
-
-		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
+		private readonly CollectionListService _collectionListService;
+		private readonly CollectionStatisticService _collectionStatisticService;
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ScaleSuffix _scaleSuffix;
 		private readonly ReportFormat _reportFormat;
 		private readonly List<LayoutDescription> _layouts;
 
 		public DeviationOperation(
-			IDataSource<CollStatOfAllUserCollections> collStatSource,
+			CollectionListService collectionListService,
+			CollectionStatisticService collectionStatisticService,
 			IReadOnlyList<Interval> intervals,
 			ScaleSuffix scaleSuffix,
 			ReportFormat reportFormat,
 			List<LayoutDescription> layouts)
 		{
-			_collStatSource = collStatSource;
+			_collectionListService = collectionListService;
+			_collectionStatisticService = collectionStatisticService;
 			_intervals = intervals;
 			_scaleSuffix = scaleSuffix;
 			_reportFormat = reportFormat;
@@ -38,7 +35,8 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
-			var allCollStats = await _collStatSource.Get(token);
+			var userColls = await _collectionListService.Get(token);
+			var allCollStats = await _collectionStatisticService.Get(userColls, token);
 
 			var sizeRenderer = new SizeRenderer("F2", _scaleSuffix);
 

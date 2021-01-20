@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
@@ -22,12 +24,14 @@ namespace ShardEqualizer.Operations
 
 		private readonly IReadOnlyList<Interval> _intervals;
 		private readonly ShardListService _shardListService;
-		private readonly IDataSource<CollStatOfAllUserCollections> _collStatSource;
+		private readonly CollectionListService _collectionListService;
+		private readonly CollectionStatisticService _collectionStatisticService;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
 		private readonly ClusterSettingsService _clusterSettingsService;
 		private readonly ChunkRepository _chunkRepo;
 		private readonly IMongoClient _mongoClient;
+		private readonly ProgressRenderer _progressRenderer;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly long? _moveLimit;
 		private readonly DebugDirectory _debugDirectory;
@@ -35,25 +39,29 @@ namespace ShardEqualizer.Operations
 
 		public EqualizeOperation(
 			ShardListService shardListService,
-			IDataSource<CollStatOfAllUserCollections> collStatSource,
+			CollectionListService collectionListService,
+			CollectionStatisticService collectionStatisticService,
 			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
 			ClusterSettingsService clusterSettingsService,
 			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,
+			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter,
 			long? moveLimit,
 			DebugDirectory debugDirectory,
 			bool planOnly)
 		{
 			_shardListService = shardListService;
-			_collStatSource = collStatSource;
+			_collectionListService = collectionListService;
+			_collectionStatisticService = collectionStatisticService;
 			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
 			_clusterSettingsService = clusterSettingsService;
 			_chunkRepo = chunkRepo;
 			_mongoClient = mongoClient;
+			_progressRenderer = progressRenderer;
 			_commandPlanWriter = commandPlanWriter;
 			_moveLimit = moveLimit;
 			_debugDirectory = debugDirectory;
@@ -63,55 +71,60 @@ namespace ShardEqualizer.Operations
 				throw new ArgumentException("interval list is empty");
 
 			_intervals = intervals;
+			_adjustableIntervals = _intervals
+				.Where(_ => _.Correction != CorrectionMode.None)
+				.ToList();
 		}
 
 		private IReadOnlyCollection<Shard> _shards;
 		private long _chunkSize;
-		private Dictionary<CollectionNamespace, CollectionStatistics> _collStatsMap;
+		private IReadOnlyDictionary<CollectionNamespace, CollectionStatistics> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
 		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
-		private int _totalChunks = 0;
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
-		private ZoneOptimizationSolve _solve;
 		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
-		private readonly WorkList _equalizeList = new WorkList();
 		private TotalEqualizeReporter _totalEqualizeReporter;
+		private readonly IReadOnlyList<Interval> _adjustableIntervals;
 
-		private ObservableTask loadAllCollChunks(CancellationToken token)
+		private async Task<IReadOnlyDictionary<CollectionNamespace, List<Chunk>>> loadAllCollChunks(CancellationToken token)
 		{
-			var correctionIntervals = _intervals
-				.Where(_ => _.Correction != CorrectionMode.None)
-				.ToList();
-
-			async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
+			await using var reporter = _progressRenderer.Start($"Load chunks", _adjustableIntervals.Count);
 			{
-				var allChunks = await (await _chunkRepo
-					.ByNamespace(interval.Namespace)
-					.From(interval.Min)
-					.To(interval.Max)
-					.Find()).ToListAsync(t);
-				Interlocked.Add(ref _totalChunks, allChunks.Count);
-				return new Tuple<CollectionNamespace, List<Chunk>>(interval.Namespace, allChunks);
-			}
+				async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
+				{
+					var allChunks = await (await _chunkRepo
+						.ByNamespace(interval.Namespace)
+						.From(interval.Min)
+						.To(interval.Max)
+						.Find()).ToListAsync(t);
+					reporter.Increment();
+					return new Tuple<CollectionNamespace, List<Chunk>>(interval.Namespace, allChunks);
+				}
 
-			return ObservableTask.WithParallels(
-				correctionIntervals,
-				32,
-				loadCollChunks,
-				chunksByNs => {  _chunksByCollection = chunksByNs.ToDictionary(_ => _.Item1, _ => _.Item2); },
-				token);
+
+				var results = await _adjustableIntervals.ParallelsAsync(loadCollChunks, 32, token);
+
+				var chunksByCollection = results.ToDictionary(_ => _.Item1, _ => _.Item2);
+
+				var totalChunks = chunksByCollection.Values.Sum(_ => _.Count);
+				reporter.SetCompleteMessage($"found {totalChunks} chunks.");
+
+				return chunksByCollection;
+			}
 		}
 
-		private void createZoneOptimizationDescriptor(CancellationToken token)
+		private void createZoneOptimizationDescriptor()
 		{
+			_progressRenderer.WriteLine($"Analyse of loaded data");
+
 			var unShardedSizeMap = _collStatsMap.Values
 				.Where(_ => !_.Sharded)
 				.GroupBy(_ => _.Primary.Value)
 				.ToDictionary(k => k.Key, g => g.Sum(_ => _.Size));
 
 			_zoneOpt = new ZoneOptimizationDescriptor(
-				_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_=> _.Namespace),
+				_adjustableIntervals.Select(_=> _.Namespace),
 				_shards.Select(_ => _.Id));
 
 			foreach (var p in unShardedSizeMap)
@@ -126,7 +139,7 @@ namespace ShardEqualizer.Operations
 					_zoneOpt[coll, s.Key].CurrentSize = s.Value.Size;
 			}
 
-			foreach (var interval in _intervals.Where(_ => _.Correction != CorrectionMode.None))
+			foreach (var interval in _adjustableIntervals)
 			{
 				var collCfg = _zoneOpt.CollectionSettings[interval.Namespace];
 				collCfg.UnShardCompensation = interval.Correction == CorrectionMode.UnShard;
@@ -155,11 +168,11 @@ namespace ShardEqualizer.Operations
 			{
 				if (!titlePrinted)
 				{
-					Console.WriteLine("\tLock reduction of size:");
+					_progressRenderer.WriteLine("\tLock reduction of size:");
 					titlePrinted = true;
 				}
 
-				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Shard} ({_.CurrentSize.ByteSize()})"))}");
+				_progressRenderer.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Shard} ({_.CurrentSize.ByteSize()})"))}");
 			}
 		}
 
@@ -177,40 +190,44 @@ namespace ShardEqualizer.Operations
 			return new ChunkCollection(_chunksByCollection[ns], chunkSizeResolver);
 		}
 
-		private void findSolution(CancellationToken token)
+		private List<EqualizeWorkItem> findSolution(CancellationToken token)
 		{
+			_progressRenderer.WriteLine($"Find solution");
+
 			if (_debugDirectory.Enable)
 				File.WriteAllText(_debugDirectory.GetFileName("conditionDump", "js"), _zoneOpt.Serialize());
 
-			_solve = ZoneOptimizationSolve.Find(_zoneOpt, token);
+			var solve = ZoneOptimizationSolve.Find(_zoneOpt, token);
 
-			if(!_solve.IsSuccess)
+			if(!solve.IsSuccess)
 				throw new Exception("solution for zone optimization not found");
 
 			var solutionMessage =
-				$"Found solution with max deviation {_solve.TargetShardMaxDeviation.ByteSize()} by shards";
-			Console.WriteLine("\t" + solutionMessage);
+				$"Found solution with max deviation {solve.TargetShardMaxDeviation.ByteSize()} by shards";
+			_progressRenderer.WriteLine("\t" + solutionMessage);
 			_commandPlanWriter.Comment(solutionMessage);
 
 			var titlePrinted = false;
-			foreach (var group in _solve.ActiveConstraints.GroupBy(_ => _.Bucket.Collection))
+			foreach (var group in solve.ActiveConstraints.GroupBy(_ => _.Bucket.Collection))
 			{
 				if (!titlePrinted)
 				{
-					Console.WriteLine("\tActive constraint:");
+					_progressRenderer.WriteLine("\tActive constraint:");
 					titlePrinted = true;
 				}
 
-				Console.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
+				_progressRenderer.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
+
+			var equalizeWorks = new List<EqualizeWorkItem>();
 
 			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
 
-			foreach (var interval in _intervals.Where(_ => _.Correction != CorrectionMode.None))
+			foreach (var interval in _adjustableIntervals)
 			{
 				var targetSizes = interval.Zones.ToDictionary(
 					t => t,
-					t => _solve[interval.Namespace, _shardByTag[t].Id].TargetSize);
+					t => solve[interval.Namespace, _shardByTag[t].Id].TargetSize);
 
 				var equalizer = new ShardSizeEqualizer(
 					_shards,
@@ -221,19 +238,20 @@ namespace ShardEqualizer.Operations
 
 				equalizer.OnMoveChunk += _totalEqualizeReporter.ChunkMoving;
 
-				Console.WriteLine();
-				Console.WriteLine($"\tEqualize shards from {interval.Namespace}");
-				Console.WriteLine($"\tShard size changes:");
+				_progressRenderer.WriteLine();
+				_progressRenderer.WriteLine($"\tEqualize shards from {interval.Namespace}");
+				_progressRenderer.WriteLine($"\tShard size changes:");
 				foreach (var zone in equalizer.Zones.OrderBy(_ => _.Main))
 				{
 					var pressure = zone.Pressure;
 
 					_totalEqualizeReporter.AddPressure(zone.Main, pressure);
-					Console.WriteLine(
+					_progressRenderer.WriteLine(
 						$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
 				}
-				Console.WriteLine($"\tBound changes:");
-				Console.Write($"\t\t[{equalizer.Zones.First().Main}]");
+				_progressRenderer.WriteLine($"\tBound changes:");
+				var sb = new StringBuilder();
+				sb.Append($"\t\t[{equalizer.Zones.First().Main}]");
 				foreach (var zone in equalizer.Zones.Skip(1))
 				{
 					var bound = zone.Left;
@@ -241,22 +259,26 @@ namespace ShardEqualizer.Operations
 					var targetSymbol = shift == 0 ? "--" : (shift > 0 ? "->" : "<-");
 					if (shift < 0)
 						shift = -shift;
-					Console.Write($" {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
+					sb.Append($" {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
 				}
-				Console.WriteLine();
+				_progressRenderer.WriteLine(sb.ToString());
 
-				if(!_planOnly)
-					_equalizeList.Add(
-						$"From {interval.Namespace.FullName}", new SingleWork(t => equalizeWork(interval.Namespace, equalizer, t)));
+				equalizeWorks.Add(new EqualizeWorkItem(){NS = interval.Namespace, Equalizer = equalizer});
 			}
 
-			Console.WriteLine();
-			Console.WriteLine($"\tTotal update pressure:");
+			_progressRenderer.WriteLine();
+			_progressRenderer.WriteLine($"\tTotal update pressure:");
 
 			foreach (var pair in _totalEqualizeReporter.TotalPressureByShard)
-				Console.WriteLine($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
+				_progressRenderer.WriteLine($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
 
-			_totalEqualizeReporter.Start();
+			return equalizeWorks;
+		}
+
+		private class EqualizeWorkItem
+		{
+			public CollectionNamespace NS { get; set; }
+			public ShardSizeEqualizer Equalizer { get; set; }
 		}
 
 		private async Task<string> equalizeWork(CollectionNamespace ns, ShardSizeEqualizer equalizer, CancellationToken token)
@@ -330,34 +352,41 @@ namespace ShardEqualizer.Operations
 		public async Task Run(CancellationToken token)
 		{
 			_chunkSize = await _clusterSettingsService.GetChunkSize(token);
-			_collStatsMap = await _collStatSource.Get(token);
+			var userColls = await _collectionListService.Get(token);
+			_collStatsMap = await _collectionStatisticService.Get(userColls, token);
 			_shards = await _shardListService.Get(token);
-			_shardedCollectionInfoByNs = await _shardedCollectionService.Get(token);
-
 			_shardByTag =  _intervals
 				.SelectMany(_ => _.Zones)
 				.Distinct()
 				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
 
-			var allTagRangesByNs =  await _tagRangeService.Get(_intervals.Where(_ => _.Correction != CorrectionMode.None).Select(_ => _.Namespace), token);
+			_shardedCollectionInfoByNs = await _shardedCollectionService.Get(token);
 
-			_tagRangesByNs = _intervals.Where(_ => _.Correction != CorrectionMode.None)
-				.ToDictionary(_ => _.Namespace, _ => allTagRangesByNs[_.Namespace].InRange(_.Min, _.Max));
+			var allTagRangesByNs =  await _tagRangeService.Get(_adjustableIntervals.Select(_ => _.Namespace), token);
+			_tagRangesByNs = _adjustableIntervals.ToDictionary(_ => _.Namespace, _ => allTagRangesByNs[_.Namespace].InRange(_.Min, _.Max));
 
-			var opList = new WorkList()
+			_chunksByCollection = await loadAllCollChunks(token);
+
+			createZoneOptimizationDescriptor();
+			var equalizeWorks = findSolution(token);
+
+			_progressRenderer.Flush();
+
+			if (!_planOnly)
 			{
-				{ "Load chunks", new ObservableWork(loadAllCollChunks, () => $"found {_totalChunks} chunks.")},
-				{ "Analyse of loaded data", createZoneOptimizationDescriptor},
-				{ "Find solution", findSolution},
-				{ "Equalize shards", _equalizeList}
-			};
+				var equalizeList = new WorkList();
+				foreach (var item in equalizeWorks)
+					equalizeList.Add($"From {item.NS.FullName}", new SingleWork(t => equalizeWork(item.NS, item.Equalizer, t)));
 
-			await opList.Apply(token);
+				_totalEqualizeReporter.Start();
+
+				await equalizeList.Apply(token); //UNDONE
+			}
 
 			_commandPlanWriter.Comment($"\tMoved chunks: {_totalEqualizeReporter.MovedChunks}");
 			_commandPlanWriter.Comment($"\tCurrent update pressure:");
-			foreach (var pair in _totalEqualizeReporter.CurrentPressureByShard)
-				_commandPlanWriter.Comment($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
+			foreach (var (shard, pressure) in _totalEqualizeReporter.CurrentPressureByShard)
+				_commandPlanWriter.Comment($"\t\t[{shard}] {pressure.ByteSize()}");
 		}
 
 		private class TotalEqualizeReporter

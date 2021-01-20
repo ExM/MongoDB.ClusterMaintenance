@@ -5,31 +5,26 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
-using NLog;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
-using ShardEqualizer.WorkFlow;
 
 namespace ShardEqualizer.Operations
 {
 	public class MergeChunksOperation : IOperation
 	{
 		private readonly IReadOnlyList<Interval> _intervals;
+		private readonly ProgressRenderer _progressRenderer;
 		private readonly ShardListService _shardListService;
 		private readonly TagRangeService _tagRangeService;
 		private readonly ChunkRepository _chunkRepo;
 		private readonly CommandPlanWriter _commandPlanWriter;
-		private int _mergedChunks;
-		private IReadOnlyCollection<Shard> _shards;
-		private IReadOnlyList<MergeZone> _mergeZones;
-
-		private ConcurrentBag<MergeCommand> _mergeCommands = new ConcurrentBag<MergeCommand>();
 
 		public MergeChunksOperation(
 			ShardListService shardListService,
 			TagRangeService tagRangeService,
 			ChunkRepository chunkRepo,
 			IReadOnlyList<Interval> intervals,
+			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter)
 		{
 			_shardListService = shardListService;
@@ -41,24 +36,33 @@ namespace ShardEqualizer.Operations
 				throw new ArgumentException("interval list is empty");
 
 			_intervals = intervals;
+			_progressRenderer = progressRenderer;
 		}
 
-		private async Task mergeInterval(MergeZone zone, CancellationToken token)
+		private async Task<Tuple<List<MergeCommand>, int>> mergeInterval(IEnumerable<Shard> shards, MergeZone zone, ProgressReporter progressReporter,
+			CancellationToken token)
 		{
-			var validShards = _shards.Where(_ => _.Tags.Contains(zone.TagRange.Tag)).Select(_ => _.Id).ToList();
+			var mergeCommands = new List<MergeCommand>();
+			var mergedChunks = 0;
+			var validShards = shards.Where(_ => _.Tags.Contains(zone.TagRange.Tag)).Select(_ => _.Id).ToList();
 
 			var mergeCandidates = await (await _chunkRepo.ByNamespace(zone.Interval.Namespace)
 				.From(zone.TagRange.Min).To(zone.TagRange.Max).NoJumbo().ByShards(validShards).Find())
 				.ToListAsync(token);
 
 			foreach (var shardGroup in mergeCandidates.GroupBy(_ => _.Shard))
-				mergeInterval(zone.Interval.Namespace, shardGroup.ToList());
+				mergedChunks += mergeInterval(zone.Interval.Namespace, shardGroup.ToList(), mergeCommands);
+
+			progressReporter.Increment();
+
+			return new Tuple<List<MergeCommand>, int>(mergeCommands, mergedChunks);
 		}
 
-		private void mergeInterval(CollectionNamespace ns, IList<Chunk> chunks)
+		private static int mergeInterval(CollectionNamespace ns, IList<Chunk> chunks, ICollection<MergeCommand> mergeCommands)
 		{
+			var mergedChunks = 0;
 			if (chunks.Count <= 1)
-				return;
+				return mergedChunks;
 
 			chunks = chunks.OrderBy(_ => _.Min).ToList();
 
@@ -71,13 +75,13 @@ namespace ShardEqualizer.Operations
 				if (left.Max == chunk.Min)
 				{
 					left = chunk;
-					Interlocked.Increment(ref _mergedChunks);
+					mergedChunks++;
 					merged++;
 					continue;
 				}
 
 				if(merged > 1)
-					_mergeCommands.Add(new MergeCommand(ns, left.Shard, minBound, left.Max));
+					mergeCommands.Add(new MergeCommand(ns, left.Shard, minBound, left.Max));
 
 				left = chunk;
 				minBound = left.Min;
@@ -85,21 +89,38 @@ namespace ShardEqualizer.Operations
 			}
 
 			if(merged > 1)
-				_mergeCommands.Add(new MergeCommand(ns, left.Shard, minBound, left.Max));
+				mergeCommands.Add(new MergeCommand(ns, left.Shard, minBound, left.Max));
+
+			return mergedChunks;
 		}
 
-		private ObservableTask mergeIntervals(CancellationToken token)
+		private async Task<List<MergeCommand>> mergeIntervals(IReadOnlyCollection<Shard> shards,
+			IReadOnlyCollection<MergeZone> mergeZones, CancellationToken token)
 		{
-			return ObservableTask.WithParallels(
-				_mergeZones,
-				16,
-				mergeInterval,
-				token);
+			var allMergeCommands = new List<MergeCommand>();
+
+			await using var reporter = _progressRenderer.Start($"Merge intervals", mergeZones.Count);
+			{
+				var results = await mergeZones.ParallelsAsync((zone, t) => mergeInterval(shards, zone, reporter, t), 16, token);
+
+				var allMergedChunks = 0;
+				foreach (var (mergeCommands, mergedChunks) in results)
+				{
+					allMergeCommands.AddRange(mergeCommands);
+					allMergedChunks += mergedChunks;
+				}
+
+				reporter.SetCompleteMessage(allMergedChunks == 0
+					? "No chunks to merge."
+					: $"Merged {allMergedChunks} chunks.");
+			}
+
+			return allMergeCommands;
 		}
 
-		private void writeCommandFile(CancellationToken token)
+		private void writeCommandFile(IEnumerable<MergeCommand> mergeCommands)
 		{
-			foreach (var nsGroup in _mergeCommands.GroupBy(_ => _.Ns).OrderBy(_ => _.Key.FullName))
+			foreach (var nsGroup in mergeCommands.GroupBy(_ => _.Ns).OrderBy(_ => _.Key.FullName))
 			{
 				_commandPlanWriter.Comment($"merge chunks on {nsGroup.Key}");
 
@@ -117,23 +138,17 @@ namespace ShardEqualizer.Operations
 
 		public async Task Run(CancellationToken token)
 		{
-			_shards = await _shardListService.Get(token);
+			var shards = await _shardListService.Get(token);
 			var tagRangesByNs = await _tagRangeService.Get(_intervals.Select(_ => _.Namespace), token);
 
-			_mergeZones = _intervals
+			var mergeZones = _intervals
 				.SelectMany(interval => tagRangesByNs[interval.Namespace].Select(tagRange => new {interval, tagRange}))
 				.Select(_ => new MergeZone(_.interval, _.tagRange))
 				.ToList();
 
-			var opList = new WorkList()
-			{
-				{ "Merge intervals", new ObservableWork(mergeIntervals, () => _mergedChunks == 0
-					? "No chunks to merge."
-					: $"Merged {_mergedChunks} chunks.")},
-				{"Write command file", writeCommandFile}
-			};
+			var mergeCommands = await mergeIntervals(shards, mergeZones, token);
 
-			await opList.Apply(token);
+			writeCommandFile(mergeCommands);
 		}
 
 		private class MergeZone

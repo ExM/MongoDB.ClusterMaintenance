@@ -34,7 +34,7 @@ namespace ShardEqualizer
 
 				var userDatabases = await _mongoClient.ListUserDatabases(token);
 				reporter.UpdateTotal(userDatabases.Count);
-				_progressRenderer.Write($"Found {userDatabases.Count} user databases.");
+				_progressRenderer.WriteLine($"Found {userDatabases.Count} user databases.");
 
 
 				async Task<IEnumerable<CollectionNamespace>> listCollectionNames(DatabaseNamespace dbName,

@@ -19,7 +19,7 @@ namespace ShardEqualizer
 
 		public IMongoClient Build()
 		{
-			_progressRenderer.Write($"Connecting to {string.Join(",", _clusterConfig.Servers)}");
+			_progressRenderer.WriteLine($"Connecting to {string.Join(",", _clusterConfig.Servers)}");
 
 			_log.Info("Connecting to {0}", string.Join(",", _clusterConfig.Servers));
 

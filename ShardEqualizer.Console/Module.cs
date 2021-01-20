@@ -17,11 +17,7 @@ namespace ShardEqualizer
 			Bind<ClusterIdService>().ToSelf().InSingletonScope();
 			Bind<IAsyncDisposable, ProgressRenderer>().To<ProgressRenderer>().InSingletonScope();
 
-			Bind<CollStatsLocalStore>().ToSelf().InSingletonScope();
-
 			Bind<LocalStoreProvider>().ToSelf().InSingletonScope();
-
-			Bind<CollectionStatisticService>().ToSelf().InSingletonScope();
 
 			Bind<IMongoClient>().ToMethod(ctx => ctx.Kernel.Get<MongoClientBuilder>().Build()).InSingletonScope();
 			Bind<ConfigDBContainer>().ToMethod(ctx => new ConfigDBContainer(ctx.Kernel.Get<IMongoClient>())).InSingletonScope();
@@ -46,8 +42,7 @@ namespace ShardEqualizer
 			Bind<ClusterSettingsService>().ToSelf().InSingletonScope();
 			Bind<ShardListService>().ToSelf().InSingletonScope();
 			Bind<CollectionListService>().ToSelf().InSingletonScope();
-
-			Bind<IDataSource<CollStatOfAllUserCollections>>().To<CollStatOfAllUserCollectionsSource>().InSingletonScope();
+			Bind<CollectionStatisticService>().ToSelf().InSingletonScope();
 		}
 	}
 
