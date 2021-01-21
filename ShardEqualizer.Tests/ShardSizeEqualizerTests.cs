@@ -39,14 +39,12 @@ namespace ShardEqualizer
 			};
 
 			var testNS = tagRanges[0].Namespace;
-			var chunks = new List<Chunk>();
+			var chunks = new List<ChunkInfo>();
 
 			for (var i = 0; i < 10; i++)
 			{
-				chunks.Add(new Chunk()
+				chunks.Add(new ChunkInfo()
 				{
-					Id = $"{testNS.FullName}-{i*10}",
-					Namespace = testNS,
 					Min = testBound(i * 10),
 					Max = testBound((i + 1) * 10),
 					Shard = new ShardIdentity("sA")
@@ -54,10 +52,8 @@ namespace ShardEqualizer
 			}
 			for (var i = 10; i < 20; i++)
 			{
-				chunks.Add(new Chunk()
+				chunks.Add(new ChunkInfo()
 				{
-					Id = $"{testNS.FullName}-{i*10}",
-					Namespace = testNS,
 					Min = testBound(i * 10),
 					Max = testBound((i + 1) * 10),
 					Shard = new ShardIdentity("sB")
@@ -65,10 +61,8 @@ namespace ShardEqualizer
 			}
 			for (var i = 20; i < 50; i++)
 			{
-				chunks.Add(new Chunk()
+				chunks.Add(new ChunkInfo()
 				{
-					Id = $"{testNS.FullName}-{i*10}",
-					Namespace = testNS,
 					Min = testBound(i * 10),
 					Max = testBound((i + 1) * 10),
 					Shard = new ShardIdentity("sC")

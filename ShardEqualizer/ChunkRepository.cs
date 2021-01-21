@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using ShardEqualizer.Models;
@@ -35,14 +36,14 @@ namespace ShardEqualizer
 				_filter = filter;
 			}
 
-			public async Task<IAsyncCursor<Chunk>> Find()
+			public async Task<IAsyncCursor<Chunk>> Find(CancellationToken token)
 			{
 				return await _coll.FindAsync(_filter, new FindOptions<Chunk>()
 				{
 					Sort = Builders<Chunk>.Sort
 						.Ascending(_ => _.Namespace)
 						.Ascending(_ => _.Min)
-				});
+				}, token);
 			}
 
 			public async Task<long> Count()

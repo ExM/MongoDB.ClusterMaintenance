@@ -43,6 +43,7 @@ namespace ShardEqualizer
 			Bind<ShardListService>().ToSelf().InSingletonScope();
 			Bind<CollectionListService>().ToSelf().InSingletonScope();
 			Bind<CollectionStatisticService>().ToSelf().InSingletonScope();
+			Bind<ChunkService>().ToSelf().InSingletonScope();
 		}
 	}
 

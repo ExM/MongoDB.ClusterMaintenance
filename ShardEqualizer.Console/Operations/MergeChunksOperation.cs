@@ -47,7 +47,7 @@ namespace ShardEqualizer.Operations
 			var validShards = shards.Where(_ => _.Tags.Contains(zone.TagRange.Tag)).Select(_ => _.Id).ToList();
 
 			var mergeCandidates = await (await _chunkRepo.ByNamespace(zone.Interval.Namespace)
-				.From(zone.TagRange.Min).To(zone.TagRange.Max).NoJumbo().ByShards(validShards).Find())
+				.From(zone.TagRange.Min).To(zone.TagRange.Max).NoJumbo().ByShards(validShards).Find(token))
 				.ToListAsync(token);
 
 			foreach (var shardGroup in mergeCandidates.GroupBy(_ => _.Shard))

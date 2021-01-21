@@ -27,8 +27,7 @@ namespace ShardEqualizer.LocalStoring
 			T container;
 			if (_readStore && File.Exists(fileName))
 			{
-				var doc = BsonDocument.Parse(File.ReadAllText(fileName));
-				container = BsonSerializer.Deserialize<T>(doc);
+				container = BsonSerializer.Deserialize<T>(File.OpenText(fileName));
 			}
 			else
 			{

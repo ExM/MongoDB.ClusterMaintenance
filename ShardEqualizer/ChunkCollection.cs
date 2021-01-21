@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using MongoDB.Bson;
 using ShardEqualizer.Models;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
 {
@@ -11,10 +12,10 @@ namespace ShardEqualizer
 	{
 		private readonly IDictionary<BsonBound, Entry> _maxMap = new SortedDictionary<BsonBound, Entry>();
 		private readonly IDictionary<BsonBound, Entry> _minMap = new SortedDictionary<BsonBound, Entry>();
-		
+
 		private readonly IReadOnlyList<Entry> _chunks;
 
-		public ChunkCollection(IReadOnlyList<Chunk> chunks, Func<Chunk, Task<long>> chunkSizeResolver)
+		public ChunkCollection(IReadOnlyList<ChunkInfo> chunks, Func<ChunkInfo, Task<long>> chunkSizeResolver)
 		{
 			_chunks = chunks.Select((c, o) => new Entry(o, c, chunkSizeResolver)).ToList();
 
@@ -32,7 +33,7 @@ namespace ShardEqualizer
 				_maxMap.Add(chunk.Chunk.Max, chunk);
 			}
 		}
-		
+
 		public Entry FindRight(Entry value)
 		{
 			if (value.Order >= _chunks.Count - 1)
@@ -40,7 +41,7 @@ namespace ShardEqualizer
 
 			return _chunks[value.Order + 1];
 		}
-		
+
 		public Entry FindLeft(Entry value)
 		{
 			if (value.Order <= 0)
@@ -53,7 +54,7 @@ namespace ShardEqualizer
 		{
 			return _minMap.TryGetValue(value, out var result) ? result : null;
 		}
-		
+
 		public Entry FindLeft(BsonBound value)
 		{
 			return _maxMap.TryGetValue(value, out var result) ? result : null;
@@ -61,10 +62,10 @@ namespace ShardEqualizer
 
 		public class Entry
 		{
-			private readonly Func<Chunk, Task<long>> _chunkSizeResolver;
+			private readonly Func<ChunkInfo, Task<long>> _chunkSizeResolver;
 			private volatile Task<long> _sizeTask;
 
-			public Entry(int order, Chunk chunk, Func<Chunk, Task<long>> chunkSizeResolver)
+			public Entry(int order, ChunkInfo chunk, Func<ChunkInfo, Task<long>> chunkSizeResolver)
 			{
 				_chunkSizeResolver = chunkSizeResolver;
 				Order = order;
@@ -72,7 +73,7 @@ namespace ShardEqualizer
 			}
 
 			public int Order { get; }
-			public Chunk Chunk { get; }
+			public ChunkInfo Chunk { get; }
 
 			public Task<long> Size
 			{

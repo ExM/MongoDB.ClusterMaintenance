@@ -190,7 +190,7 @@ namespace ShardEqualizer.Operations
 				.From(interval.Min)
 				.To(interval.Max);
 
-			var chunks = await (await filtered.Find()).ToListAsync(token);
+			var chunks = await (await filtered.Find(token)).ToListAsync(token);
 
 			if(chunks.Count < interval.Zones.Count)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} does not contain enough chunks");

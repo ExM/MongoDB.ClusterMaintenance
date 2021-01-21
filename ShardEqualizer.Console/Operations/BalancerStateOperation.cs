@@ -45,7 +45,7 @@ namespace ShardEqualizer.Operations
 				var validShards = shards.Where(_ => _.Tags.Contains(tagRange.Tag)).Select(_ => _.Id).ToList();
 
 				var unMovedChunks = await (await _chunkRepo.ByNamespace(interval.Namespace)
-						.From(tagRange.Min).To(tagRange.Max).NoJumbo().ExcludeShards(validShards).Find())
+						.From(tagRange.Min).To(tagRange.Max).NoJumbo().ExcludeShards(validShards).Find(token))
 					.ToListAsync(token);
 
 				if (unMovedChunks.Count == 0) continue;

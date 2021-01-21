@@ -51,7 +51,7 @@ namespace ShardEqualizer.Operations
 						.From(interval.Min)
 						.To(interval.Max)
 						.OnlyJumbo()
-						.Find()).ToListAsync(t);
+						.Find(t)).ToListAsync(t);
 					reporter.Increment();
 					return allChunks;
 				}

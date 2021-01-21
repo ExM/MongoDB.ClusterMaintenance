@@ -29,7 +29,7 @@ namespace ShardEqualizer.Operations
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
 		private readonly ClusterSettingsService _clusterSettingsService;
-		private readonly ChunkRepository _chunkRepo;
+		private readonly ChunkService _chunkService;
 		private readonly IMongoClient _mongoClient;
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly CommandPlanWriter _commandPlanWriter;
@@ -45,6 +45,7 @@ namespace ShardEqualizer.Operations
 			TagRangeService tagRangeService,
 			ClusterSettingsService clusterSettingsService,
 			ChunkRepository chunkRepo,
+			ChunkService chunkService,
 			IReadOnlyList<Interval> intervals,
 			IMongoClient mongoClient,
 			ProgressRenderer progressRenderer,
@@ -59,7 +60,7 @@ namespace ShardEqualizer.Operations
 			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
 			_clusterSettingsService = clusterSettingsService;
-			_chunkRepo = chunkRepo;
+			_chunkService = chunkService;
 			_mongoClient = mongoClient;
 			_progressRenderer = progressRenderer;
 			_commandPlanWriter = commandPlanWriter;
@@ -79,40 +80,13 @@ namespace ShardEqualizer.Operations
 		private IReadOnlyCollection<Shard> _shards;
 		private long _chunkSize;
 		private IReadOnlyDictionary<CollectionNamespace, CollectionStatistics> _collStatsMap;
-		private IReadOnlyDictionary<CollectionNamespace, List<Chunk>> _chunksByCollection;
+		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<ChunkInfo>> _chunksByCollection;
 		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
 		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
 		private TotalEqualizeReporter _totalEqualizeReporter;
 		private readonly IReadOnlyList<Interval> _adjustableIntervals;
-
-		private async Task<IReadOnlyDictionary<CollectionNamespace, List<Chunk>>> loadAllCollChunks(CancellationToken token)
-		{
-			await using var reporter = _progressRenderer.Start($"Load chunks", _adjustableIntervals.Count);
-			{
-				async Task<Tuple<CollectionNamespace, List<Chunk>>> loadCollChunks(Interval interval, CancellationToken t)
-				{
-					var allChunks = await (await _chunkRepo
-						.ByNamespace(interval.Namespace)
-						.From(interval.Min)
-						.To(interval.Max)
-						.Find()).ToListAsync(t);
-					reporter.Increment();
-					return new Tuple<CollectionNamespace, List<Chunk>>(interval.Namespace, allChunks);
-				}
-
-
-				var results = await _adjustableIntervals.ParallelsAsync(loadCollChunks, 32, token);
-
-				var chunksByCollection = results.ToDictionary(_ => _.Item1, _ => _.Item2);
-
-				var totalChunks = chunksByCollection.Values.Sum(_ => _.Count);
-				reporter.SetCompleteMessage($"found {totalChunks} chunks.");
-
-				return chunksByCollection;
-			}
-		}
 
 		private void createZoneOptimizationDescriptor()
 		{
@@ -181,7 +155,7 @@ namespace ShardEqualizer.Operations
 			var collInfo = _shardedCollectionInfoByNs[ns];
 			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
 
-			async Task<long> chunkSizeResolver(Chunk chunk)
+			async Task<long> chunkSizeResolver(ChunkInfo chunk)
 			{
 				var result = await db.Datasize(collInfo, chunk, false, token);
 				return result.Size;
@@ -365,7 +339,9 @@ namespace ShardEqualizer.Operations
 			var allTagRangesByNs =  await _tagRangeService.Get(_adjustableIntervals.Select(_ => _.Namespace), token);
 			_tagRangesByNs = _adjustableIntervals.ToDictionary(_ => _.Namespace, _ => allTagRangesByNs[_.Namespace].InRange(_.Min, _.Max));
 
-			_chunksByCollection = await loadAllCollChunks(token);
+			var allChunksByNs = await _chunkService.Get(_adjustableIntervals.Select(_ => _.Namespace), token);
+			_chunksByCollection = _adjustableIntervals.ToDictionary(_ => _.Namespace,
+				_ => (IReadOnlyList<ChunkInfo>) allChunksByNs[_.Namespace].FromInterval(_.Min, _.Max));
 
 			createZoneOptimizationDescriptor();
 			var equalizeWorks = findSolution(token);
