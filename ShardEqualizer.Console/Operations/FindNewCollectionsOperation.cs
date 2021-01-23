@@ -11,13 +11,11 @@ using NLog;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShortModels;
-using ShardEqualizer.WorkFlow;
 
 namespace ShardEqualizer.Operations
 {
 	public class FindNewCollectionsOperation: IOperation
 	{
-		private readonly IMongoClient _mongoClient;
 		private readonly ShardListService _shardListService;
 		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly CollectionStatisticService _collectionStatisticService;
@@ -35,14 +33,12 @@ namespace ShardEqualizer.Operations
 			ShardListService shardListService,
 			ShardedCollectionService shardedCollectionService,
 			CollectionStatisticService collectionStatisticService,
-			IMongoClient mongoClient,
 			IReadOnlyList<Interval> intervals)
 		{
 			_shardListService = shardListService;
 			_shardedCollectionService = shardedCollectionService;
 			_collectionStatisticService = collectionStatisticService;
 			_intervals = intervals;
-			_mongoClient = mongoClient;
 		}
 
 		private void analyseIntervals()

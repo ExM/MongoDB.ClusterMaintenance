@@ -82,7 +82,7 @@ namespace ShardEqualizer.Operations
 				var comments = new List<string>();
 				comments.Add($"presplit commands for {interval.Namespace.FullName}");
 
-				if (await removeOldTagRangesIfRequired(interval, buffer))
+				if (removeOldTagRangesIfRequired(interval, buffer))
 				{
 					_log.Info("presplit data of {0} with mode {1}", interval.Namespace.FullName, preSplit);
 
@@ -128,7 +128,7 @@ namespace ShardEqualizer.Operations
 			await _intervals.ParallelsAsync((interval, t) => createPresplitCommandForInterval(interval, reporter, t), 32, token);
 		}
 
-		private async Task<bool> removeOldTagRangesIfRequired(Interval interval, TagRangeCommandBuffer buffer)
+		private bool removeOldTagRangesIfRequired(Interval interval, TagRangeCommandBuffer buffer)
 		{
 			var tagRanges = _tagRangesByNs[interval.Namespace].InRange(interval.Min, interval.Max);
 

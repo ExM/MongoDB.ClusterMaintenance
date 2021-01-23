@@ -16,8 +16,6 @@ namespace ShardEqualizer
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly LocalStore<SettingsContainer> _store;
 
-		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _map;
-
 		public ClusterSettingsService(
 			SettingsRepository repo,
 			ProgressRenderer progressRenderer,

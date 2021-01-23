@@ -136,14 +136,19 @@ namespace ShardEqualizer
 				reporter.CompleteRendering();
 		}
 
-		public ProgressReporter Start(string title, long total = 0)
+		public ProgressReporter Start(string title, long total = 0, Func<long, string> valueRenderer = null)
 		{
-			var reporter = new ProgressReporter(title, total);
+			var reporter = new ProgressReporter(title, total, valueRenderer ?? defaultRenderer);
 
 			lock (_sync)
 				_reporters.Add(reporter);
 
 			return reporter;
+		}
+
+		private string defaultRenderer(long v)
+		{
+			return v.ToString();
 		}
 
 		public void WriteLine(string line = "")

@@ -8,10 +8,11 @@ namespace ShardEqualizer
 {
 	public class ProgressReporter: IAsyncDisposable
 	{
-		public ProgressReporter(string title, long total)
+		public ProgressReporter(string title, long total, Func<long, string> valueRenderer)
 		{
 			_title = title;
 			_total = total;
+			_valueRenderer = valueRenderer;
 			_sw = Stopwatch.StartNew();
 		}
 
@@ -52,13 +53,18 @@ namespace ShardEqualizer
 			return new[]
 			{
 				$"{_title} ...",
-				$"# Progress: {completed}/{total} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} Left: {left:d\\.hh\\:mm\\:ss\\.f}"
+				$"# Progress: {_valueRenderer(completed)}/{_valueRenderer(total)} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} Left: {left:d\\.hh\\:mm\\:ss\\.f}"
 			};
 		}
 
 		public void Increment()
 		{
 			Interlocked.Increment(ref _completed);
+		}
+
+		public void UpdateCurrent(long current)
+		{
+			Interlocked.Exchange(ref _completed, current);
 		}
 
 		public void SetCompleteMessage(string message)
@@ -72,6 +78,7 @@ namespace ShardEqualizer
 		private string _completeMessage;
 		private readonly string _title;
 		private long _total;
+		private readonly Func<long, string> _valueRenderer;
 		private readonly Stopwatch _sw;
 
 		private readonly TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
