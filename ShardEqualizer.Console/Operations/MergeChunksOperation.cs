@@ -22,7 +22,7 @@ namespace ShardEqualizer.Operations
 		public MergeChunksOperation(
 			ShardListService shardListService,
 			TagRangeService tagRangeService,
-			ChunkRepository chunkRepo,
+			ChunkRepository chunkRepo, //UNDONE use ChunkService
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter)

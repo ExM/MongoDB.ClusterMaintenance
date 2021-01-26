@@ -46,9 +46,9 @@ namespace ShardEqualizer
 				}, token);
 			}
 
-			public async Task<long> Count()
+			public async Task<long> Count(CancellationToken token)
 			{
-				return await _coll.CountDocumentsAsync(_filter);
+				return await _coll.CountDocumentsAsync(_filter, null, token);
 			}
 
 			public Filtered From(BsonBound? from)

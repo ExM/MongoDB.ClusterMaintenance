@@ -1,6 +1,6 @@
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,7 +9,6 @@ using MongoDB.Bson.Serialization.Options;
 using MongoDB.Driver;
 using ShardEqualizer.ChunkCaching;
 using ShardEqualizer.LocalStoring;
-using ShardEqualizer.Models;
 using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer
@@ -55,17 +54,37 @@ namespace ShardEqualizer
 
 			if (missedKeys.Any())
 			{
-				await using var reporter = _progressRenderer.Start($"Load chunks", missedKeys.Count);
+				await using var reporter = _progressRenderer.Start($"Load chunks");
 				{
-					async Task getChunks(CollectionNamespace ns, CancellationToken t)
+					async Task<(CollectionNamespace ns, long count)> getCounts(CollectionNamespace ns, CancellationToken t)
 					{
-						var cursor = await _repo.ByNamespace(ns).Find(t);
-						var chunks = await cursor.ToListAsync(t);
-						reporter.Increment();
-						_map[ns] = new ChunksCache(chunks.Select(_ => new ChunkInfo(_)).ToArray());
+						var count = await _repo.ByNamespace(ns).Count(t);
+						return (ns, count);
 					}
 
-					await missedKeys.ParallelsAsync(getChunks, 32, token);
+					var counts = await missedKeys.ParallelsAsync(getCounts, 32, token);
+
+					reporter.UpdateTotal(counts.Sum(_ => _.Item2));
+
+					var orderedNs = counts.OrderByDescending(_ => _.Item2).ToList();
+
+					async Task getChunks(CollectionNamespace ns, long expectedCount, CancellationToken t)
+					{
+						var cursor = await _repo.ByNamespace(ns).Find(t);
+						var chunks = new List<ChunkInfo>((int)expectedCount);
+						using (cursor)
+						{
+							while (await cursor.MoveNextAsync(t))
+							{
+								chunks.AddRange(cursor.Current.Select(_ => new ChunkInfo(_)));
+								reporter.Increment(cursor.Current.Count());
+							}
+						}
+
+						_map[ns] = new ChunksCache(chunks.ToArray());
+					}
+
+					await orderedNs.ParallelsAsync((i, t) => getChunks(i.ns, i.count, t), 32, token);
 				}
 				_store.OnChanged();
 			}

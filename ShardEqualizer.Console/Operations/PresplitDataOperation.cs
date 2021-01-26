@@ -28,7 +28,7 @@ namespace ShardEqualizer.Operations
 		public PresplitDataOperation(
 			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
-			ChunkRepository chunkRepo,
+			ChunkRepository chunkRepo, //UNDONE use ChunkService
 			IReadOnlyList<Interval> intervals,
 			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter,
@@ -61,7 +61,7 @@ namespace ShardEqualizer.Operations
 					var totalChunks = await _chunkRepo
 						.ByNamespace(interval.Namespace)
 						.From(interval.Min)
-						.To(interval.Max).Count();
+						.To(interval.Max).Count(token);
 
 					preSplit = totalChunks / interval.Zones.Count < 100
 						? PreSplitMode.Interval

@@ -25,11 +25,10 @@ namespace ShardEqualizer.Operations
 		private readonly ShardListService _shardListService;
 		private readonly CollectionListService _collectionListService;
 		private readonly CollectionStatisticService _collectionStatisticService;
-		private readonly ShardedCollectionService _shardedCollectionService;
 		private readonly TagRangeService _tagRangeService;
 		private readonly ClusterSettingsService _clusterSettingsService;
 		private readonly ChunkService _chunkService;
-		private readonly IMongoClient _mongoClient;
+		private readonly ChunkSizeService _chunkSizeService;
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly long? _moveLimit;
@@ -40,13 +39,11 @@ namespace ShardEqualizer.Operations
 			ShardListService shardListService,
 			CollectionListService collectionListService,
 			CollectionStatisticService collectionStatisticService,
-			ShardedCollectionService shardedCollectionService,
 			TagRangeService tagRangeService,
 			ClusterSettingsService clusterSettingsService,
-			ChunkRepository chunkRepo,
 			ChunkService chunkService,
+			ChunkSizeService chunkSizeService,
 			IReadOnlyList<Interval> intervals,
-			IMongoClient mongoClient,
 			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter,
 			long? moveLimit,
@@ -56,11 +53,10 @@ namespace ShardEqualizer.Operations
 			_shardListService = shardListService;
 			_collectionListService = collectionListService;
 			_collectionStatisticService = collectionStatisticService;
-			_shardedCollectionService = shardedCollectionService;
 			_tagRangeService = tagRangeService;
 			_clusterSettingsService = clusterSettingsService;
 			_chunkService = chunkService;
-			_mongoClient = mongoClient;
+			_chunkSizeService = chunkSizeService;
 			_progressRenderer = progressRenderer;
 			_commandPlanWriter = commandPlanWriter;
 			_moveLimit = moveLimit;
@@ -80,7 +76,6 @@ namespace ShardEqualizer.Operations
 		private long _chunkSize;
 		private IReadOnlyDictionary<CollectionNamespace, CollectionStatistics> _collStatsMap;
 		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<ChunkInfo>> _chunksByCollection;
-		private IReadOnlyDictionary<CollectionNamespace, ShardedCollectionInfo> _shardedCollectionInfoByNs;
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
 		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
@@ -151,16 +146,7 @@ namespace ShardEqualizer.Operations
 
 		private ChunkCollection createChunkCollection(CollectionNamespace ns, CancellationToken token)
 		{
-			var collInfo = _shardedCollectionInfoByNs[ns];
-			var db = _mongoClient.GetDatabase(ns.DatabaseNamespace.DatabaseName);
-
-			async Task<long> chunkSizeResolver(ChunkInfo chunk)
-			{
-				var result = await db.Datasize(collInfo, chunk, false, token);
-				return result.Size;
-			}
-
-			return new ChunkCollection(_chunksByCollection[ns], chunkSizeResolver);
+			return new ChunkCollection(_chunksByCollection[ns], chunk => _chunkSizeService.Get(ns, chunk.Min, chunk.Max, token));
 		}
 
 		private List<EqualizeWorkItem> findSolution(CancellationToken token)
@@ -314,8 +300,6 @@ namespace ShardEqualizer.Operations
 				.SelectMany(_ => _.Zones)
 				.Distinct()
 				.ToDictionary(_ => _, _ => _shards.Single(s => s.Tags.Contains(_)));
-
-			_shardedCollectionInfoByNs = await _shardedCollectionService.Get(token);
 
 			var allTagRangesByNs =  await _tagRangeService.Get(_adjustableIntervals.Select(_ => _.Namespace), token);
 			_tagRangesByNs = _adjustableIntervals.ToDictionary(_ => _.Namespace, _ => allTagRangesByNs[_.Namespace].InRange(_.Min, _.Max));

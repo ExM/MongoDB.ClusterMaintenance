@@ -62,6 +62,11 @@ namespace ShardEqualizer
 			Interlocked.Increment(ref _completed);
 		}
 
+		public void Increment(long value)
+		{
+			Interlocked.Add(ref _completed, value);
+		}
+
 		public void UpdateCurrent(long current)
 		{
 			Interlocked.Exchange(ref _completed, current);
