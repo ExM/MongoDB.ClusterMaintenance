@@ -127,13 +127,30 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			return sb.ToString();
 		}
 
-		public async Task<bool> Equalize()
+		public async Task<MoveResult> Equalize()
 		{
 			foreach (var bound in _movingBounds.OrderByDescending(b => b.ElapsedShiftSize))
-				if (await bound.TryMove())
-					return true;
+			{
+				var moveResult = await bound.TryMove();
+				if (moveResult.IsSuccess)
+					return moveResult;
+			}
 
-			return false;
+			return MoveResult.Unsuccessful;
+		}
+
+		public class MoveResult
+		{
+			public static readonly MoveResult Unsuccessful = new MoveResult(0);
+
+			public MoveResult(long movedChunkSize)
+			{
+				IsSuccess = movedChunkSize != 0;
+				MovedChunkSize = movedChunkSize;
+			}
+
+			public bool IsSuccess { get; }
+			public long MovedChunkSize { get; }
 		}
 
 		private static void continuityCheck(IReadOnlyCollection<TagRange> tagRanges)

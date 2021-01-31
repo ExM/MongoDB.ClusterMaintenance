@@ -12,6 +12,7 @@ using NLog;
 using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.Reporting;
 using ShardEqualizer.ShardSizeEqualizing;
 using ShardEqualizer.ShortModels;
 
@@ -79,7 +80,6 @@ namespace ShardEqualizer.Operations
 		private ZoneOptimizationDescriptor _zoneOpt;
 		private Dictionary<TagIdentity, Shard> _shardByTag;
 		private IReadOnlyDictionary<CollectionNamespace, IReadOnlyList<TagRange>> _tagRangesByNs;
-		private TotalEqualizeReporter _totalEqualizeReporter;
 		private readonly IReadOnlyList<Interval> _adjustableIntervals;
 
 		private void createZoneOptimizationDescriptor()
@@ -178,11 +178,7 @@ namespace ShardEqualizer.Operations
 				_progressRenderer.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
 
-			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
-
 			var equalizeWorks = new List<EqualizeWorkItem>();
-
-			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
 
 			foreach (var interval in _adjustableIntervals)
 			{
@@ -197,19 +193,8 @@ namespace ShardEqualizer.Operations
 					targetSizes,
 					createChunkCollection(interval.Namespace, token));
 
-				equalizer.OnMoveChunk += _totalEqualizeReporter.ChunkMoving;
-
 				equalizeWorks.Add(new EqualizeWorkItem(interval.Namespace, equalizer));
 			}
-
-			foreach (var item in equalizeWorks)
-				renderShardSizeChanges(item);
-
-			_progressRenderer.WriteLine();
-			_progressRenderer.WriteLine($"\tTotal update pressure:");
-			foreach (var pair in _totalEqualizeReporter.TotalPressureByShard)
-				_progressRenderer.WriteLine($"\t\t[{pair.Key}] {pair.Value.ByteSize()}");
-			_progressRenderer.WriteLine();
 
 			return equalizeWorks;
 		}
@@ -217,30 +202,14 @@ namespace ShardEqualizer.Operations
 		private void renderShardSizeChanges(EqualizeWorkItem item)
 		{
 			var equalizer = item.Equalizer;
-			_progressRenderer.WriteLine();
-			_progressRenderer.WriteLine($"\tEqualize shards from {item.Ns}");
-			_progressRenderer.WriteLine($"\tShard size changes:");
-			foreach (var zone in equalizer.Zones.OrderBy(_ => _.Main))
-			{
-				var pressure = zone.Pressure;
+			var scaleSuffix = equalizer.Zones.Max(_ => _.TargetSize).OptimalScaleSuffix();
 
-				_totalEqualizeReporter.AddPressure(zone.Main, pressure);
-				_progressRenderer.WriteLine(
-					$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
-			}
-			_progressRenderer.WriteLine($"\tBound changes:");
-			var sb = new StringBuilder();
-			sb.Append($"\t\t[{equalizer.Zones.First().Main}]");
-			foreach (var zone in equalizer.Zones.Skip(1))
+			_progressRenderer.WriteLine($"  Equalize shards from {item.Ns} (in {scaleSuffix.Text()}b)");
+
+			foreach (var line in equalizer.RenderMovePlan(scaleSuffix))
 			{
-				var bound = zone.Left;
-				var shift = zone.Left.RequireShiftSize;
-				var targetSymbol = shift == 0 ? "--" : (shift > 0 ? "->" : "<-");
-				if (shift < 0)
-					shift = -shift;
-				sb.Append($" {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
+				_progressRenderer.WriteLine("    " + line);
 			}
-			_progressRenderer.WriteLine(sb.ToString());
 		}
 
 		private class EqualizeWorkItem
@@ -320,6 +289,18 @@ namespace ShardEqualizer.Operations
 			createZoneOptimizationDescriptor();
 			var equalizeWorks = findSolution(token);
 
+			_progressRenderer.WriteLine("Data move plan:");
+			foreach (var item in equalizeWorks)
+			{
+				renderShardSizeChanges(item);
+				_progressRenderer.WriteLine();
+			}
+
+			_progressRenderer.WriteLine($"Total update pressure:");
+			foreach (var pair in equalizeWorks.SelectMany(_ => _.Equalizer.Zones).GroupBy(_ => _.Main).OrderBy(_ => _.Key))
+				_progressRenderer.WriteLine($"  [{pair.Key}] {pair.Sum(_ => _.RequirePressure).ByteSize()}");
+			_progressRenderer.WriteLine();
+
 			if (!_planOnly)
 			{
 				var updateQuotes = _shards.ToDictionary(_ => _.Id, _ => _moveLimit);
@@ -329,129 +310,65 @@ namespace ShardEqualizer.Operations
 					item.Equalizer.SetQuotes(updateQuotes);
 				}
 
+				equalizeWorks = equalizeWorks.Where(_ => _.Equalizer.RequireMoveSize > 0).ToList();
+
 				_progressRenderer.WriteLine("Quoted plan:");
-				foreach (var item in equalizeWorks.Where(_ => _.Equalizer.RequireMoveSize > 0))
+				foreach (var item in equalizeWorks)
+				{
 					renderShardSizeChanges(item);
+					_progressRenderer.WriteLine();
+				}
+
+				var movedChunks = 0;
 
 				try
 				{
-					await runEqualizeAllCollections(equalizeWorks, token);
+					movedChunks = await runEqualizeAllCollections(equalizeWorks, token);
 				}
 				finally
 				{
 					foreach (var item in equalizeWorks)
 						item.RenderCommandPlan(_commandPlanWriter);
 
-					_commandPlanWriter.Comment($"\tMoved chunks: {_totalEqualizeReporter.MovedChunks}");
+					_commandPlanWriter.Comment($"\tMoved chunks: {movedChunks}");
 					_commandPlanWriter.Comment($"\tCurrent update pressure:");
-					foreach (var (shard, pressure) in _totalEqualizeReporter.CurrentPressureByShard)
-						_commandPlanWriter.Comment($"\t\t[{shard}] {pressure.ByteSize()}");
+
+					foreach (var shard in equalizeWorks.SelectMany(_ => _.Equalizer.Zones).GroupBy(_ => _.Main).OrderBy(_ => _.Key))
+						_commandPlanWriter.Comment($"\t\t[{shard.Key}] {shard.Sum(_ => _.CurrentPressure).ByteSize()}");
 				}
 			}
 		}
 
-		private async Task runEqualizeAllCollections(IEnumerable<EqualizeWorkItem> equalizeWorkItems, CancellationToken token)
+		private async Task<int> runEqualizeAllCollections(IList<EqualizeWorkItem> equalizeWorkItems, CancellationToken token)
 		{
-			_totalEqualizeReporter.Start();
+			var movedChunkCount = 0;
+			var totalPressure = equalizeWorkItems.Sum(_ => _.Equalizer.RequireMoveSize);
 
-			var inProgressItems = equalizeWorkItems.ToHashSet();
-
-			await using var reporter = _progressRenderer.Start($"Equalize all collections", _totalEqualizeReporter.TotalPressure, LongExtensions.ByteSize);
+			await using var reporter = _progressRenderer.Start($"Equalize all collections", totalPressure, LongExtensions.ByteSize);
 			{
-				while (!token.IsCancellationRequested)
+				foreach (var item in equalizeWorkItems)
 				{
-					if(inProgressItems.Count == 0) // || _totalEqualizeReporter.OutOfLimit)
-						break;
-
-					token.ThrowIfCancellationRequested();
-
-					var item = inProgressItems.OrderByDescending(_ => _.Equalizer.ElapsedShiftSize).First(); //TODO other signs of sorting collections
-
-					_log.Debug("Equalize {0}", item.Ns);
-
-					var moved = await item.Equalizer.Equalize(); // UNDONE use token
-
-					if (!moved)
+					while (!token.IsCancellationRequested)
 					{
-						foreach (var line in item.RenderCompleteState())
-							_progressRenderer.WriteLine(line);
+						_log.Debug("Equalize {0}", item.Ns);
 
-						inProgressItems.Remove(item);
+						var moved = await item.Equalizer.Equalize(); // UNDONE use token
+
+						if (!moved.IsSuccess)
+							break;
+
+						movedChunkCount++;
+						reporter.Increment(moved.MovedChunkSize);
 					}
 
-					reporter.UpdateCurrent(_totalEqualizeReporter.CurrentPressure);
+					foreach (var line in item.RenderCompleteState())
+						_progressRenderer.WriteLine(line);
 				}
 
-				reporter.SetCompleteMessage($"moved {_totalEqualizeReporter.MovedChunks} chunks");
-			}
-		}
-
-		private class TotalEqualizeReporter
-		{
-			private readonly long? _moveLimit;
-			private Stopwatch _sw;
-			private readonly Dictionary<ShardIdentity, long> _totalPressureByShard = new Dictionary<ShardIdentity, long>();
-
-			public long TotalPressure { get; private set; }
-			public long CurrentPressure { get; private set; }
-			private Dictionary<ShardIdentity, long> _limitByShard;
-			private Dictionary<ShardIdentity, long> _currentPressureByShard;
-
-			public int MovedChunks { get; private set; }
-
-			public bool OutOfLimit { get; private set; }
-
-			public TotalEqualizeReporter(long? moveLimit)
-			{
-				_moveLimit = moveLimit;
+				reporter.SetCompleteMessage($"moved {movedChunkCount} chunks");
 			}
 
-			public void Start()
-			{
-				_limitByShard = _totalPressureByShard.ToDictionary(_ => _.Key, _ => Math.Min(_.Value, _moveLimit ?? _.Value));
-				_currentPressureByShard = _totalPressureByShard.ToDictionary(_ => _.Key, _ => (long)0);
-				TotalPressure = _limitByShard.Sum(_ => _.Value);
-				CurrentPressure = 0;
-
-				_sw = Stopwatch.StartNew();
-			}
-
-			public void ChunkMoving(object sender, ShardSizeEqualizer.ChunkMovingArgs e)
-			{
-				MovedChunks++;
-				CurrentPressure += e.ChunkSize;
-				_limitByShard[e.Target.Main] -= e.ChunkSize;
-				_currentPressureByShard[e.Target.Main] += e.ChunkSize;
-
-				if (_limitByShard[e.Target.Main] < 0)
-					OutOfLimit = true;
-			}
-
-			public void AddPressure(ShardIdentity shard, long pressure)
-			{
-				if (_totalPressureByShard.ContainsKey(shard))
-					_totalPressureByShard[shard] += pressure;
-				else
-					_totalPressureByShard[shard] = pressure;
-			}
-
-			public IReadOnlyDictionary<ShardIdentity, long> TotalPressureByShard => _totalPressureByShard;
-
-			public IReadOnlyDictionary<ShardIdentity, long> CurrentPressureByShard => _currentPressureByShard;
-
-			public string RenderState()
-			{
-				if (TotalPressure == 0)
-					return "";
-
-				var elapsed = _sw.Elapsed;
-				var percent = (double) CurrentPressure / TotalPressure;
-				var s = percent <= 0 ? 0 : (1 - percent) / percent;
-
-				var eta = TimeSpan.FromSeconds(elapsed.TotalSeconds * s);
-
-				return $"All progress {CurrentPressure.ByteSize()}/{TotalPressure.ByteSize()} Moved chunks: {MovedChunks} Elapsed: {elapsed:d\\.hh\\:mm\\:ss\\.f} ETA: {eta:d\\.hh\\:mm\\:ss\\.f}";
-			}
+			return movedChunkCount;
 		}
 	}
 }

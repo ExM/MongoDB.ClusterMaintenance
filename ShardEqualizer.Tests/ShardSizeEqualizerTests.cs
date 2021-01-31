@@ -81,7 +81,7 @@ namespace ShardEqualizer
 			var equalizer = new ShardSizeEqualizer(shards, collStatsByShards, tagRanges, targetSize, chunkColl);
 
 			var round = 0;
-			while(await equalizer.Equalize())
+			while(!(await equalizer.Equalize()).IsSuccess)
 			{
 				if (equalizer.CurrentSizeDeviation < 3)
 					break;

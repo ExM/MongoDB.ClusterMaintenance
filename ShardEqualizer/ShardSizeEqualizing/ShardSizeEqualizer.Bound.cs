@@ -34,27 +34,30 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				RightChunk =_chunks.FindRight(value);
 			}
 
-			public async Task<bool> TryMove()
+			public async Task<MoveResult> TryMove()
 			{
 				if (RequireShiftSize == 0)
-					return false;
+					return MoveResult.Unsuccessful;
+
+				long movedChunkSize;
 
 				if (RequireShiftSize < 0)
 				{ // to left
 					if (_shiftSize <= RequireShiftSize)
-						return false;
+						return MoveResult.Unsuccessful;
 
 					if (_nextChunk == null)
 						_nextChunk = await findLeftNextChunk();
 
 					if (_nextChunk == null)
-						return false;
+						return MoveResult.Unsuccessful;
 
 					var nextChunkSize = await _nextChunk.Size;
 
 					if ((_shiftSize - nextChunkSize/2) < RequireShiftSize)
-						return false;
+						return MoveResult.Unsuccessful;
 
+					movedChunkSize = nextChunkSize;
 					_shardSizeEqualizer.onChunkMoving(LeftZone, RightZone, this, nextChunkSize);
 
 					Interlocked.Add(ref _shiftSize, -nextChunkSize);
@@ -67,19 +70,20 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				else // RequireShiftSize > 0
 				{ // to right
 					if (RequireShiftSize <= _shiftSize)
-						return false;
+						return MoveResult.Unsuccessful;
 
 					if (_nextChunk == null)
 						_nextChunk = await findRightNextChunk();
 
 					if (_nextChunk == null)
-						return false;
+						return MoveResult.Unsuccessful;
 
 					var nextChunkSize = await _nextChunk.Size;
 
 					if ((_shiftSize + nextChunkSize/2) > RequireShiftSize)
-						return false;
+						return MoveResult.Unsuccessful;
 
+					movedChunkSize = nextChunkSize;
 					_shardSizeEqualizer.onChunkMoving(RightZone, LeftZone, this, nextChunkSize);
 
 					Interlocked.Add(ref _shiftSize, nextChunkSize);
@@ -91,7 +95,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				}
 
 				_nextChunk = null;
-				return true;
+				return new MoveResult(movedChunkSize);
 			}
 
 			private async Task<ChunkCollection.Entry> findLeftNextChunk()
