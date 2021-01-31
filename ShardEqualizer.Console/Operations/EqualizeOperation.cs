@@ -178,6 +178,8 @@ namespace ShardEqualizer.Operations
 				_progressRenderer.WriteLine($"\t\t{group.Key} on {string.Join(", ", group.Select(_ => $"{_.Bucket.Shard} {_.TypeAsText} {_.Bound.ByteSize()}"))}");
 			}
 
+			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
+
 			var equalizeWorks = new List<EqualizeWorkItem>();
 
 			_totalEqualizeReporter = new TotalEqualizeReporter(_moveLimit);
@@ -197,33 +199,11 @@ namespace ShardEqualizer.Operations
 
 				equalizer.OnMoveChunk += _totalEqualizeReporter.ChunkMoving;
 
-				_progressRenderer.WriteLine();
-				_progressRenderer.WriteLine($"\tEqualize shards from {interval.Namespace}");
-				_progressRenderer.WriteLine($"\tShard size changes:");
-				foreach (var zone in equalizer.Zones.OrderBy(_ => _.Main))
-				{
-					var pressure = zone.Pressure;
-
-					_totalEqualizeReporter.AddPressure(zone.Main, pressure);
-					_progressRenderer.WriteLine(
-						$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
-				}
-				_progressRenderer.WriteLine($"\tBound changes:");
-				var sb = new StringBuilder();
-				sb.Append($"\t\t[{equalizer.Zones.First().Main}]");
-				foreach (var zone in equalizer.Zones.Skip(1))
-				{
-					var bound = zone.Left;
-					var shift = zone.Left.RequireShiftSize;
-					var targetSymbol = shift == 0 ? "--" : (shift > 0 ? "->" : "<-");
-					if (shift < 0)
-						shift = -shift;
-					sb.Append($" {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
-				}
-				_progressRenderer.WriteLine(sb.ToString());
-
 				equalizeWorks.Add(new EqualizeWorkItem(interval.Namespace, equalizer));
 			}
+
+			foreach (var item in equalizeWorks)
+				renderShardSizeChanges(item);
 
 			_progressRenderer.WriteLine();
 			_progressRenderer.WriteLine($"\tTotal update pressure:");
@@ -232,6 +212,35 @@ namespace ShardEqualizer.Operations
 			_progressRenderer.WriteLine();
 
 			return equalizeWorks;
+		}
+
+		private void renderShardSizeChanges(EqualizeWorkItem item)
+		{
+			var equalizer = item.Equalizer;
+			_progressRenderer.WriteLine();
+			_progressRenderer.WriteLine($"\tEqualize shards from {item.Ns}");
+			_progressRenderer.WriteLine($"\tShard size changes:");
+			foreach (var zone in equalizer.Zones.OrderBy(_ => _.Main))
+			{
+				var pressure = zone.Pressure;
+
+				_totalEqualizeReporter.AddPressure(zone.Main, pressure);
+				_progressRenderer.WriteLine(
+					$"\t\t[{zone.Main}] {zone.InitialSize.ByteSize()} -> {zone.TargetSize.ByteSize()} delta: {zone.Delta.ByteSize()} pressure: {pressure.ByteSize()}");
+			}
+			_progressRenderer.WriteLine($"\tBound changes:");
+			var sb = new StringBuilder();
+			sb.Append($"\t\t[{equalizer.Zones.First().Main}]");
+			foreach (var zone in equalizer.Zones.Skip(1))
+			{
+				var bound = zone.Left;
+				var shift = zone.Left.RequireShiftSize;
+				var targetSymbol = shift == 0 ? "--" : (shift > 0 ? "->" : "<-");
+				if (shift < 0)
+					shift = -shift;
+				sb.Append($" {targetSymbol} {shift.ByteSize()} {targetSymbol} [{bound.RightZone.Main}]");
+			}
+			_progressRenderer.WriteLine(sb.ToString());
 		}
 
 		private class EqualizeWorkItem
@@ -311,10 +320,19 @@ namespace ShardEqualizer.Operations
 			createZoneOptimizationDescriptor();
 			var equalizeWorks = findSolution(token);
 
-			_progressRenderer.Flush();
-
 			if (!_planOnly)
 			{
+				var updateQuotes = _shards.ToDictionary(_ => _.Id, _ => _moveLimit);
+
+				foreach (var item in equalizeWorks.OrderByDescending(_ => _.Equalizer.ElapsedShiftSize))
+				{
+					item.Equalizer.SetQuotes(updateQuotes);
+				}
+
+				_progressRenderer.WriteLine("Quoted plan:");
+				foreach (var item in equalizeWorks.Where(_ => _.Equalizer.RequireMoveSize > 0))
+					renderShardSizeChanges(item);
+
 				try
 				{
 					await runEqualizeAllCollections(equalizeWorks, token);
@@ -342,7 +360,7 @@ namespace ShardEqualizer.Operations
 			{
 				while (!token.IsCancellationRequested)
 				{
-					if(inProgressItems.Count == 0 || _totalEqualizeReporter.OutOfLimit)
+					if(inProgressItems.Count == 0) // || _totalEqualizeReporter.OutOfLimit)
 						break;
 
 					token.ThrowIfCancellationRequested();

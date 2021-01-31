@@ -148,5 +148,72 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				nextBound = range.Max;
 			}
 		}
+
+		public void SetQuotes(Dictionary<ShardIdentity, long?> updateQuotes)
+		{
+			foreach (var zone in Zones)
+			{
+				var quoteN = updateQuotes[zone.Main];
+				if(quoteN == null)
+					continue;
+
+				var quote = quoteN.Value;
+
+				long leftPressure = 0;
+				long rightPressure = 0;
+
+				if (zone.Left != null && zone.Left.RequireShiftSize < 0)
+					leftPressure = -zone.Left.RequireShiftSize;
+
+				if (zone.Right != null && zone.Right.RequireShiftSize > 0)
+					rightPressure = zone.Right.RequireShiftSize;
+
+				if (quote == 0)
+				{
+					if (leftPressure > 0)
+						zone.Left.RequireShiftSize = 0;
+
+					if (rightPressure > 0)
+						zone.Right.RequireShiftSize = 0;
+
+					continue;
+				}
+
+				if (leftPressure + rightPressure < quote)
+				{
+					updateQuotes[zone.Main] -= leftPressure + rightPressure;
+				}
+				else
+				{
+					if (leftPressure < rightPressure)
+					{
+						if (rightPressure > quote)
+						{
+							zone.Right.RequireShiftSize = quote;
+						}
+						else
+						{
+							if(leftPressure > 0)
+								zone.Left.RequireShiftSize = - (quote - rightPressure);
+						}
+					}
+					else
+					{ // rightPressure <= leftPressure
+
+						if (leftPressure > quote)
+						{
+							zone.Left.RequireShiftSize = -quote;
+						}
+						else
+						{
+							if(rightPressure > 0)
+								zone.Right.RequireShiftSize = quote - leftPressure;
+						}
+					}
+
+					updateQuotes[zone.Main] = 0;
+				}
+			}
+		}
 	}
 }

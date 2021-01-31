@@ -26,7 +26,7 @@
     },
     "equalize": {
       "commandName": "Project",
-      "commandLineArgs": "equalize --moveLimit=2000"
+      "commandLineArgs": "equalize --moveLimit=200"
     },
     "merge": {
       "commandName": "Project",
