@@ -204,8 +204,9 @@ namespace ShardEqualizer.Operations
 			var equalizer = item.Equalizer;
 			var scaleSuffix = equalizer.Zones.Max(_ => _.TargetSize).OptimalScaleSuffix();
 
-			_progressRenderer.WriteLine($"  Equalize shards from {item.Ns} (in {scaleSuffix.Text()}b)");
-
+			_progressRenderer.WriteLine($"  {item.Ns}");
+			_progressRenderer.WriteLine($"    Require move: {equalizer.RequireMoveSize.ByteSize()}");
+			_progressRenderer.WriteLine($"    Equalize details (in {scaleSuffix.Text()}b)");
 			foreach (var line in equalizer.RenderMovePlan(scaleSuffix))
 			{
 				_progressRenderer.WriteLine("    " + line);
@@ -305,7 +306,7 @@ namespace ShardEqualizer.Operations
 			{
 				var updateQuotes = _shards.ToDictionary(_ => _.Id, _ => _moveLimit);
 
-				foreach (var item in equalizeWorks.OrderByDescending(_ => _.Equalizer.ElapsedShiftSize))
+				foreach (var item in equalizeWorks.OrderByDescending(_ => _.Equalizer.RequireMoveSize).ToList())
 				{
 					item.Equalizer.SetQuotes(updateQuotes);
 				}

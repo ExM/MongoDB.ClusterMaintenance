@@ -11,13 +11,13 @@ namespace ShardEqualizer.Verbs
 	{
 		[Option("renew", Required = false, Default = false, HelpText = "recreate unchanged zones")]
 		public bool Renew { get; set; }
-		
-		public override Task RunOperation(IKernel kernel, CancellationToken token)
+
+		protected override async Task RunOperation(IKernel kernel, CancellationToken token)
 		{
 			kernel.Bind<IOperation>().To<PresplitDataOperation>()
 				.WithConstructorArgument(Renew);
 
-			return base.RunOperation(kernel, token);
+			await base.RunOperation(kernel, token);
 		}
 	}
 }

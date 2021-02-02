@@ -159,6 +159,7 @@ namespace ShardEqualizer
 
 		public async ValueTask DisposeAsync()
 		{
+			Flush();
 			_cts.Cancel();
 			await _renderTask;
 		}

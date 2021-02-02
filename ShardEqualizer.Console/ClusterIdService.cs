@@ -25,8 +25,14 @@ namespace ShardEqualizer
 				_clusterId = ObjectId.Parse(_clusterConfig.Id);
 		}
 
-		public async Task Validate()
+		public async Task Validate(bool offline)
 		{
+			if (offline)
+			{
+				var copy = ClusterId;
+				return;
+			}
+
 			if (_clusterId == null)
 			{
 				await using (_progressRenderer.Start($"Read cluster id {_clusterConfig.Id}"))

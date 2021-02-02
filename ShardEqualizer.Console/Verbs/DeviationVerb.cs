@@ -14,25 +14,25 @@ namespace ShardEqualizer.Verbs
 	{
 		[Option('s', "scale", Required = false, Default = "", HelpText = "scale of size (K,M,G,T,P,E)")]
 		public string Scale { get; set; }
-		
+
 		[Option("layouts", Required = false, Default = "default", HelpText = "Сomma separated name list of layouts (default)")]
 		public string Layouts { get; set; }
 
 		[Option("format", Required = false, Default = "csv", HelpText = "format of report (csv - CSV, md - markdown")]
 		public string Format { get; set; }
 
-		public override async Task RunOperation(IKernel kernel, CancellationToken token)
+		protected override async Task RunOperation(IKernel kernel, CancellationToken token)
 		{
 			var layouts = kernel.Get<LayoutStore>()
 				.Get(Layouts.Split(new char[] {','}, StringSplitOptions.RemoveEmptyEntries).Select(_ => _.Trim()))
 				.ToList();
-			
+
 			kernel.Bind<IOperation>().To<DeviationOperation>()
 				.WithConstructorArgument(parseScaleSuffix(Scale))
 				.WithConstructorArgument(parseReportFormat(Format))
 				.WithConstructorArgument(layouts);
-			
-			await kernel.Get<IOperation>().Run(token);
+
+			await base.RunOperation(kernel, token);
 		}
 
 		private ScaleSuffix parseScaleSuffix(string scale)
@@ -50,7 +50,7 @@ namespace ShardEqualizer.Verbs
 					throw new FormatException($"unexpected text '{scale}' in the scale option");
 			}
 		}
-		
+
 		private ReportFormat parseReportFormat(string scale)
 		{
 			switch (scale)

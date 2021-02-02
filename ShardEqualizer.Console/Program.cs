@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
@@ -39,14 +40,7 @@ namespace ShardEqualizer
 				_log.Warn("cancel operation requested...");
 			};
 
-			var parsed = Parser.Default.ParseArguments<
-				FindNewCollectionsVerb,
-				ScanJumboChunksVerb,
-				MergeChunksVerb,
-				PresplitDataVerb,
-				BalancerStateVerb,
-				DeviationVerb,
-				EqualizeVerb>(args) as Parsed<object>;
+			var parsed = Parser.Default.ParseArguments(args, loadVerbs()) as Parsed<object>;
 
 			if (parsed == null)
 				return 1;
@@ -59,16 +53,9 @@ namespace ShardEqualizer
 				kernel.Load<Module>();
 				BindConfiguration(verbose, kernel);
 
-				await kernel.Get<ClusterIdService>().Validate();
+				await verbose.Run(kernel, cts.Token);
 
-				var result = await ProcessVerbAndReturnExitCode(t => verbose.RunOperation(kernel, t), cts.Token);
-
-				kernel.Get<LocalStoreProvider>().SaveFile();
-
-				foreach (var item in kernel.GetAll<IAsyncDisposable>())
-					await item.DisposeAsync();
-
-				return result;
+				return 0;
 			}
 			catch (Exception e)
 			{
@@ -82,6 +69,9 @@ namespace ShardEqualizer
 				LogManager.Flush();
 			}
 		}
+
+		private	static Type[] loadVerbs() => Assembly.GetExecutingAssembly().GetTypes()
+				.Where(t => t.GetCustomAttribute<VerbAttribute>() != null && !t.IsAbstract).ToArray();
 
 		private static IAppSettings loadConfiguration(string configFile)
 		{
@@ -105,8 +95,6 @@ namespace ShardEqualizer
 				localStoreConfig.ResetStore = true;
 
 			kernel.Bind<LocalStoreConfig>().ToConstant(localStoreConfig);
-
-
 
 			var intervalConfigs = loadIntervalConfigurations(clusterConfig, appSettings);
 			var intervals = intervalConfigs.Select(_ => new Interval(_)).ToList().AsReadOnly();
@@ -139,30 +127,6 @@ namespace ShardEqualizer
 				intervalConfig.Zones ??= clusterConfig.Zones;
 
 				yield return intervalConfig;
-			}
-		}
-
-		private static async Task<int> ProcessVerbAndReturnExitCode(Func<CancellationToken, Task> action, CancellationToken token)
-		{
-			try
-			{
-				await action(token);
-				return 0;
-			}
-			catch (Exception e)
-			{
-				if (!token.IsCancellationRequested)
-				{
-					_log.Fatal(e, "unexpected exception");
-					Console.Error.WriteLine();
-					Console.Error.WriteLine(e.Message);
-				}
-
-				return 1;
-			}
-			finally
-			{
-				LogManager.Flush();
 			}
 		}
 	}

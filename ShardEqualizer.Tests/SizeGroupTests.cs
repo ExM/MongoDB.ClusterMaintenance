@@ -73,7 +73,6 @@ namespace ShardEqualizer
 
 			protected override void AppendHeader(StringBuilder sb, IEnumerable<string> cells)
 			{
-				//throw new System.NotImplementedException();
 			}
 		}
 	}

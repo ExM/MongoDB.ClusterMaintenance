@@ -28,6 +28,10 @@
       "commandName": "Project",
       "commandLineArgs": "equalize --moveLimit=200"
     },
+    "equalize offline": {
+      "commandName": "Project",
+      "commandLineArgs": "equalize --offline --moveLimit=200"
+    },
     "merge": {
       "commandName": "Project",
       "commandLineArgs": "merge"
