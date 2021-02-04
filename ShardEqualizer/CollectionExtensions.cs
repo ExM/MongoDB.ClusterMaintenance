@@ -32,7 +32,7 @@ namespace ShardEqualizer
 			return result;
 		}
 
-		public static IEnumerable<List<T>> Split<T>(this List<T> items, int partCount)
+		public static IEnumerable<List<T>> Split<T>(this IList<T> items, int partCount)
 		{
 			var partSize = items.Count / partCount;
 			var extra = items.Count % partCount;
