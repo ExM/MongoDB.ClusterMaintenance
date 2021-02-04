@@ -29,7 +29,7 @@ namespace ShardEqualizer.ChunkCaching
 			if(end - start == 0)
 				return new ChunkInfo[0];
 
-			return _chunks.Skip(start).Take(end - start).ToArray();
+			return _chunks.Skip(start).Take(end - start + 1).ToArray();
 		}
 
 		private int findStartChunk(BsonBound? key)

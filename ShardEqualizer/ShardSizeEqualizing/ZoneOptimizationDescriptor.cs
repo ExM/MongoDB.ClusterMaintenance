@@ -13,8 +13,8 @@ namespace ShardEqualizer.ShardSizeEqualizing
 		{
 			Collections = collections.ToList();
 			foreach (var coll in Collections)
-				_collectionSettings.Add(coll, new CollectionSettings(){ Priority = 1, UnShardCompensation = true });
-			
+				_collectionSettings.Add(coll, new CollectionSettings(){ Priority = 1, Adjustable = true });
+
 			Shards = shards.ToList();
 			foreach (var shard in Shards)
 				_unShardedSizes.Add(shard, 0);
@@ -23,10 +23,10 @@ namespace ShardEqualizer.ShardSizeEqualizing
 
 			_bucketsByShardByCollection =  _bucketList.GroupBy(_ => _.Shard)
 				.ToDictionary(k => k.Key, v => (IReadOnlyDictionary<CollectionNamespace, Bucket>)v.ToDictionary(_ => _.Collection, _ => _));
-			
+
 			_bucketsByShard = _bucketList.GroupBy(_ => _.Shard)
 				.ToDictionary(_ => _.Key, _ => (IReadOnlyList<Bucket>) _.ToList());
-			
+
 			ShardEqualsPriority = 100;
 			DeviationLimitFromAverage = 0.5;
 		}
@@ -39,18 +39,18 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			get => _unShardedSizes[shard];
 			set =>  _unShardedSizes[shard] = value;
 		}
-		
+
 		CollectionSettings ICollectionSettingsDescriptor.this[CollectionNamespace coll] => _collectionSettings[coll];
 
 		public double ShardEqualsPriority { get; set; }
-		
+
 		/// <summary>
 		/// limit of deviation from the average value of the bucket in percent
 		/// </summary>
 		public double DeviationLimitFromAverage { get; set; }
 
 		public IUnShardedSizeDescriptor UnShardedSize => this;
-		
+
 		public ICollectionSettingsDescriptor CollectionSettings => this;
 
 		public IReadOnlyList<Bucket> AllManagedBuckets => _bucketList.Where(_ => _.Managed).ToList();
@@ -63,14 +63,14 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				p => _unShardedSizes[p.Key] + p.Value.Where(b => !b.Managed).Sum(b => b.CurrentSize));
 
 		public long TotalManagedSize => AllManagedBuckets.Select(_ => _.CurrentSize).Sum();
-		
+
 		public IReadOnlyList<CollectionNamespace> Collections { get; }
 		public IReadOnlyList<ShardIdentity> Shards { get; }
 
 		private readonly IDictionary<ShardIdentity, long> _unShardedSizes = new Dictionary<ShardIdentity, long>();
-		
+
 		private readonly IDictionary<CollectionNamespace, CollectionSettings> _collectionSettings = new Dictionary<CollectionNamespace, CollectionSettings>();
-		
+
 		private readonly IReadOnlyDictionary<ShardIdentity, IReadOnlyList<Bucket>> _bucketsByShard;
 		private readonly IReadOnlyDictionary<ShardIdentity, IReadOnlyDictionary<CollectionNamespace, Bucket>> _bucketsByShardByCollection;
 		private readonly IReadOnlyList<Bucket> _bucketList;
@@ -78,7 +78,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 		public static ZoneOptimizationDescriptor Deserialize(string text)
 		{
 			var container = JsonConvert.DeserializeObject<Container>(text);
-			
+
 			var result = new ZoneOptimizationDescriptor(
 				container.Collections.Select(_ => CollectionNamespace.FromFullName(_.Ns)),
 				container.Shards.Select(_ => new ShardIdentity(_.Name)));
@@ -90,7 +90,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			{
 				var collSettings = result.CollectionSettings[CollectionNamespace.FromFullName(collDesc.Ns)];
 				collSettings.Priority = collDesc.Priority;
-				collSettings.UnShardCompensation = collDesc.UnShardCompensation;
+				collSettings.Adjustable = collDesc.Adjustable;
 			}
 
 			foreach (var shardDesc in container.Shards)
@@ -123,8 +123,8 @@ namespace ShardEqualizer.ShardSizeEqualizing
 				{
 					Ns = _.FullName,
 					Priority = CollectionSettings[_].Priority,
-					UnShardCompensation = CollectionSettings[_].UnShardCompensation
-					
+					Adjustable = CollectionSettings[_].Adjustable
+
 				}).ToArray(),
 				Shards = Shards.Select(_ => new ShardDescriptor()
 				{
@@ -143,7 +143,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 
 			return JObject.FromObject(container).ToString();
 		}
-		
+
 		private class Container
 		{
 			public double ShardEqualsPriority;
@@ -152,7 +152,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			public ShardDescriptor[] Shards;
 			public BucketDescriptor[] Buckets;
 		}
-		
+
 		private class BucketDescriptor
 		{
 			public string Collection;
@@ -161,14 +161,14 @@ namespace ShardEqualizer.ShardSizeEqualizing
 			public bool Managed;
 			public long Min;
 		}
-		
+
 		private class CollectionDescriptor
 		{
 			public string Ns;
 			public double Priority;
-			public bool UnShardCompensation;
+			public bool Adjustable;
 		}
-		
+
 		private class ShardDescriptor
 		{
 			public string Name;
@@ -180,7 +180,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 	{
 		CollectionSettings this[CollectionNamespace coll] { get; }
 	}
-	
+
 	public interface IUnShardedSizeDescriptor
 	{
 		long this[ShardIdentity shard] { get; set; }
@@ -189,6 +189,6 @@ namespace ShardEqualizer.ShardSizeEqualizing
 	public class CollectionSettings
 	{
 		public double Priority { get; set; }
-		public bool UnShardCompensation { get; set; }
+		public bool Adjustable { get; set; }
 	}
 }

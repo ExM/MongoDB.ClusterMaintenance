@@ -13,9 +13,7 @@
 		<MyCluster Servers="localhost" User="user" Password="pass" zones="A,B,C,D" >
 			<Interval
 				nameSpace="database1.collection1"
-				preSplit="auto|interval|chunk"
-				correction="none|self|unShard"
-				priority="1"
+				adjustable="false"
 				zones="B,C,D">
 				<MinBound>{ "_id" : CSUUID("00000000-0000-0000-0000-000000000000") }</MinBound>
 				<MaxBound>{ "_id" : CSUUID("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF") }</MaxBound>

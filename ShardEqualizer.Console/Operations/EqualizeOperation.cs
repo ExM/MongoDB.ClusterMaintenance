@@ -68,9 +68,7 @@ namespace ShardEqualizer.Operations
 				throw new ArgumentException("interval list is empty");
 
 			_intervals = intervals;
-			_adjustableIntervals = _intervals
-				.Where(_ => _.Correction != CorrectionMode.None)
-				.ToList();
+			_adjustableIntervals = _intervals.Where(_ => _.Adjustable).ToList();
 		}
 
 		private IReadOnlyCollection<Shard> _shards;
@@ -110,8 +108,8 @@ namespace ShardEqualizer.Operations
 			foreach (var interval in _adjustableIntervals)
 			{
 				var collCfg = _zoneOpt.CollectionSettings[interval.Namespace];
-				collCfg.UnShardCompensation = interval.Correction == CorrectionMode.UnShard;
-				collCfg.Priority = interval.Priority;
+				collCfg.Adjustable = interval.Adjustable;
+				collCfg.Priority = 1;
 
 				var allChunks = _chunksByCollection[interval.Namespace];
 				foreach (var tag in interval.Zones)

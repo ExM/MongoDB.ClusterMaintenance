@@ -44,7 +44,7 @@ namespace ShardEqualizer.Operations
 			foreach (var (ns, collStats) in allCollStats)
 			{
 				var interval = _intervals.FirstOrDefault(_ => _.Namespace.FullName == ns.FullName);
-				report.Append(collStats, interval?.Correction);
+				report.Append(collStats, interval?.Adjustable);
 			}
 
 			Console.WriteLine($"Report as {_reportFormat}:");

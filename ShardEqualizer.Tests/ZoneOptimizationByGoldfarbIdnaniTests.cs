@@ -104,7 +104,7 @@ namespace ShardEqualizer
 			zoneOpt[_cC, _sC].Init(b => { b.CurrentSize =  400; b.Managed = true; });
 
 			zoneOpt.ShardEqualsPriority = 100;
-			zoneOpt.CollectionSettings[_cC].UnShardCompensation = false;
+			zoneOpt.CollectionSettings[_cC].Adjustable = false;
 			
 			var solve = ZoneOptimizationSolve.Find(zoneOpt);
 

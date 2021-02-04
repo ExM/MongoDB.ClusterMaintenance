@@ -17,13 +17,7 @@ namespace ShardEqualizer.Config
 		[DataMember(Name = "zones")]
 		public string Zones { get; set; }
 
-		[DataMember(Name = "preSplit")]
-		public PreSplitMode? PreSplit { get; set; }
-
-		[DataMember(Name = "correction")]
-		public CorrectionMode? Correction { get; set; }
-
-		[DataMember(Name = "Priority")]
-		public double? Priority { get; set;}
+		[DataMember(Name = "adjustable")]
+		public bool? Adjustable { get; set; }
 	}
 }

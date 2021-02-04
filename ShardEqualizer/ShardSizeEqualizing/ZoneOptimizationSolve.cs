@@ -76,7 +76,7 @@ namespace ShardEqualizer.ShardSizeEqualizing
 
 				foreach (var bucket in managedBucketsByShard[shard])
 				{
-					if(source.CollectionSettings[bucket.Collection].UnShardCompensation)
+					if(source.CollectionSettings[bucket.Collection].Adjustable)
 						sum += bucket.VariableFunction;
 				}
 

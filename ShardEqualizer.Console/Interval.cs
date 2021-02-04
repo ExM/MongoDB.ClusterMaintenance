@@ -9,26 +9,20 @@ namespace ShardEqualizer
 {
 	public class Interval
 	{
-		public Interval(CollectionNamespace ns, IReadOnlyList<TagIdentity> zones, PreSplitMode preSplit,
-			CorrectionMode correction, BsonBound min, BsonBound max, double priority)
+		public Interval(CollectionNamespace ns, IReadOnlyList<TagIdentity> zones, BsonBound min, BsonBound max, bool adjustable)
 		{
 			Namespace = ns;
 			Zones = zones;
-			PreSplit = preSplit;
-			Correction = correction;
-			Priority = priority;
 			Min = min;
 			Max = max;
+			Adjustable = adjustable;
 		}
 
 		public Interval(IntervalConfig config)
 		{
 			Namespace = CollectionNamespace.FromFullName(config.Namespace);
 			Zones = config.Zones?.Split(',').Select(_ => new TagIdentity(_)).ToList();
-			PreSplit = config.PreSplit ?? PreSplitMode.Auto;
-			Correction = config.Correction ?? CorrectionMode.UnShard;
-			Priority = config.Priority ?? 1;
-
+			Adjustable = config.Adjustable ?? true;
 			Min = string.IsNullOrWhiteSpace(config.MinBound) ? null : (BsonBound?)BsonBound.Parse(config.MinBound);
 			Max = string.IsNullOrWhiteSpace(config.MaxBound) ? null : (BsonBound?)BsonBound.Parse(config.MaxBound);
 		}
@@ -37,8 +31,6 @@ namespace ShardEqualizer
 		public BsonBound? Min { get; }
 		public BsonBound? Max { get; }
 		public IReadOnlyList<TagIdentity> Zones { get; }
-		public PreSplitMode PreSplit { get; }
-		public CorrectionMode Correction { get; }
-		public double Priority { get; }
+		public bool Adjustable { get; }
 	}
 }

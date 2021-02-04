@@ -9,6 +9,7 @@ using ShardEqualizer.ChunkCaching;
 using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
+using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer.Operations
 {
@@ -63,64 +64,17 @@ namespace ShardEqualizer.Operations
 
 		private void createPresplitCommandForInterval(Interval interval)
 		{
-			var preSplit = interval.PreSplit;
-
-			if (preSplit == PreSplitMode.Auto)
-			{
-				if (interval.Min.HasValue && interval.Max.HasValue)
-				{
-					var totalChunks = _allChunksByNs[interval.Namespace].FromInterval(interval.Min, interval.Max).Length;
-
-					preSplit = totalChunks / interval.Zones.Count < 100
-						? PreSplitMode.Interval
-						: PreSplitMode.Chunks;
-
-					_log.Info("detect presplit mode of {0} with total chunks {1}", interval.Namespace.FullName, totalChunks);
-				}
-				else
-				{
-					preSplit = PreSplitMode.Chunks;
-
-					_log.Info("detect presplit mode of {0} without bounds", interval.Namespace.FullName);
-				}
-			}
-
 			using (var buffer = new TagRangeCommandBuffer(_commandPlanWriter, interval.Namespace))
 			{
-				var comments = new List<string>();
-				comments.Add($"presplit commands for {interval.Namespace.FullName}");
+				_commandPlanWriter.Comment($"presplit commands for {interval.Namespace.FullName}");
 
 				if (removeOldTagRangesIfRequired(interval, buffer))
-				{
-					_log.Info("presplit data of {0} with mode {1}", interval.Namespace.FullName, preSplit);
-
-					switch (preSplit)
-					{
-						case PreSplitMode.Interval:
-							presplitData(interval, buffer);
-							break;
-						case PreSplitMode.Chunks:
-							distributeCollection(interval, buffer);
-							break;
-
-						case PreSplitMode.Auto:
-						default:
-							throw new NotSupportedException($"unexpected PreSplitType:{preSplit}");
-					}
-				}
+					presplitInterval(interval, buffer);
 				else
-				{
-					comments.Add($"zones not changed");
-				}
-
-				lock (_commandPlanWriter)
-				{
-					foreach (var comment in comments)
-						_commandPlanWriter.Comment(comment);
-					buffer.Flush();
-					_commandPlanWriter.Comment($"---");
-				}
+					_commandPlanWriter.Comment($"zones not changed");
 			}
+
+			_commandPlanWriter.Comment($"---");
 		}
 
 		private bool removeOldTagRangesIfRequired(Interval interval, TagRangeCommandBuffer buffer)
@@ -143,16 +97,39 @@ namespace ShardEqualizer.Operations
 			return true;
 		}
 
-		private void presplitData(Interval interval, TagRangeCommandBuffer buffer)
+		private void presplitInterval(Interval interval, TagRangeCommandBuffer buffer)
 		{
 			var collInfo = _shardedCollectionByNs[interval.Namespace];
 
-			if (collInfo == null)
+			if (collInfo == null || collInfo.Dropped)
 				throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
 
-			if(interval.Min == null || interval.Max == null)
-				throw new InvalidOperationException($"collection {interval.Namespace.FullName} - bounds not found in configuration");
+			if (!interval.Adjustable)
+			{
+				if(interval.Min == null || interval.Max == null)
+					throw new InvalidOperationException($"collection {interval.Namespace.FullName} - bounds not found in configuration");
 
+				presplitByBounds(interval, buffer);
+				return;
+			}
+
+			var chunks = _allChunksByNs[interval.Namespace].FromInterval(interval.Min, interval.Max);
+
+			if (chunks.Length < interval.Zones.Count)
+			{
+				if(interval.Min == null || interval.Max == null)
+					throw new InvalidOperationException($"collection {interval.Namespace.FullName} does not contain enough chunks " +
+					                                    $"or specify the boundaries of the interval in the configuration");
+
+				presplitByBounds(interval, buffer);
+				return;
+			}
+
+			presplitByChunks(interval, chunks, buffer);
+		}
+
+		private void presplitByBounds(Interval interval, TagRangeCommandBuffer buffer)
+		{
 			var internalBounds = BsonSplitter.SplitFirstValue(interval.Min.Value, interval.Max.Value, interval.Zones.Count)
 				.ToList();
 
@@ -172,18 +149,8 @@ namespace ShardEqualizer.Operations
 			}
 		}
 
-		private void distributeCollection(Interval interval, TagRangeCommandBuffer buffer)
+		private void presplitByChunks(Interval interval, IList<ChunkInfo> chunks, TagRangeCommandBuffer buffer)
 		{
-			var collInfo = _shardedCollectionByNs[interval.Namespace];
-
-			if (collInfo == null)
-				throw new InvalidOperationException($"collection {interval.Namespace.FullName} not sharded");
-
-			var chunks = _allChunksByNs[interval.Namespace].FromInterval(interval.Min, interval.Max);
-
-			if(chunks.Length < interval.Zones.Count)
-				throw new InvalidOperationException($"collection {interval.Namespace.FullName} does not contain enough chunks");
-
 			var parts = chunks.Split(interval.Zones.Count).Select((items, order) => new {Items = items, Order = order}).ToList();
 			foreach (var part in parts)
 			{
