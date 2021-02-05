@@ -1,9 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using NUnit.Framework;
-using ShardEqualizer.Config;
 using ShardEqualizer.Models;
-using ShardEqualizer.MongoCommands;
 using ShardEqualizer.Reporting;
 using ShardEqualizer.ShortModels;
 

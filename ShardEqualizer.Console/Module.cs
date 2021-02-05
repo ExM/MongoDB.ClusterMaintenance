@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using MongoDB.Driver;
 using Ninject;
 using Ninject.Modules;

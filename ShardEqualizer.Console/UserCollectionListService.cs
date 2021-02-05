@@ -3,10 +3,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Bson.Serialization.Attributes;
-using MongoDB.Bson.Serialization.Options;
 using MongoDB.Driver;
 using ShardEqualizer.LocalStoring;
-using ShardEqualizer.Models;
 
 namespace ShardEqualizer
 {

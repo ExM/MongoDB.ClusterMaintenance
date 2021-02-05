@@ -1,15 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MongoDB.Driver;
 using NLog;
-using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
 using ShardEqualizer.Reporting;
@@ -33,7 +29,6 @@ namespace ShardEqualizer.Operations
 		private readonly ProgressRenderer _progressRenderer;
 		private readonly CommandPlanWriter _commandPlanWriter;
 		private readonly long? _moveLimit;
-		private readonly DebugDirectory _debugDirectory;
 		private readonly bool _planOnly;
 
 		public EqualizeOperation(
@@ -48,7 +43,6 @@ namespace ShardEqualizer.Operations
 			ProgressRenderer progressRenderer,
 			CommandPlanWriter commandPlanWriter,
 			long? moveLimit,
-			DebugDirectory debugDirectory,
 			bool planOnly)
 		{
 			_shardListService = shardListService;
@@ -61,7 +55,6 @@ namespace ShardEqualizer.Operations
 			_progressRenderer = progressRenderer;
 			_commandPlanWriter = commandPlanWriter;
 			_moveLimit = moveLimit;
-			_debugDirectory = debugDirectory;
 			_planOnly = planOnly;
 
 			if (intervals.Count == 0)
@@ -151,8 +144,7 @@ namespace ShardEqualizer.Operations
 		{
 			_progressRenderer.WriteLine($"Find solution");
 
-			if (_debugDirectory.Enable)
-				File.WriteAllText(_debugDirectory.GetFileName("conditionDump", "js"), _zoneOpt.Serialize());
+			//File.WriteAllText("conditionDump.js", _zoneOpt.Serialize());
 
 			var solve = ZoneOptimizationSolve.Find(_zoneOpt, token);
 

@@ -1,16 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
-using MongoDB.Bson;
-using MongoDB.Bson.IO;
-using MongoDB.Bson.Serialization;
-using MongoDB.Bson.Serialization.Serializers;
-using MongoDB.Driver;
 using NConfiguration;
 using NConfiguration.Combination;
 using NConfiguration.Joining;
@@ -19,9 +13,7 @@ using NConfiguration.Xml;
 using Ninject;
 using NLog;
 using ShardEqualizer.Config;
-using ShardEqualizer.LocalStoring;
 using ShardEqualizer.Reporting;
-using ShardEqualizer.Verbs;
 
 namespace ShardEqualizer
 {
@@ -100,9 +92,6 @@ namespace ShardEqualizer
 			var intervals = intervalConfigs.Select(_ => new Interval(_)).ToList().AsReadOnly();
 
 			kernel.Bind<IReadOnlyList<Interval>>().ToConstant(intervals);
-
-			var debugDumpConfig = appSettings.TryGet<DebugDump>();
-			kernel.Bind<DebugDirectory>().ToSelf().WithConstructorArgument(debugDumpConfig);
 
 			kernel.Bind<LayoutStore>()
 				.ToMethod(ctx => new LayoutStore(appSettings.TryGet<DeviationLayoutsConfig>().Layouts))

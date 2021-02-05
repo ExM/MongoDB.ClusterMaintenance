@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommandLine;
 using Ninject;
-using Ninject.Syntax;
 using NLog;
 using ShardEqualizer.LocalStoring;
 

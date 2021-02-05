@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using MongoDB.Bson;
 using MongoDB.Bson.IO;
-using MongoDB.Bson.Serialization;
 
 namespace ShardEqualizer.LocalStoring
 {

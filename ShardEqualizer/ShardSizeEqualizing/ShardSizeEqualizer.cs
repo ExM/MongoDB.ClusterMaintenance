@@ -7,7 +7,6 @@ using MongoDB.Bson;
 using NLog;
 using ShardEqualizer.Models;
 using ShardEqualizer.ShortModels;
-using ShardEqualizer.MongoCommands;
 
 namespace ShardEqualizer.ShardSizeEqualizing
 {

@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using MongoDB.Bson;
 using NUnit.Framework;
 using ShardEqualizer.Models;
-using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShardSizeEqualizing;
 using ShardEqualizer.ShortModels;
 

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using ShardEqualizer.Config;
 

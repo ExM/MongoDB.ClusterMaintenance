@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using MongoDB.Driver;
 using NLog;
 using ShardEqualizer.ChunkCaching;
-using ShardEqualizer.Config;
 using ShardEqualizer.Models;
 using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShortModels;

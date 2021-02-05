@@ -1,9 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using ShardEqualizer.Config;
 using ShardEqualizer.Models;
-using ShardEqualizer.MongoCommands;
 using ShardEqualizer.ShortModels;
 
 namespace ShardEqualizer.Reporting
