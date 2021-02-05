@@ -6,7 +6,6 @@
 		<Layout Name="balance" Title="Balance report" Columns="MnSz MnSzD FxSz FxSzD"/>
 	</DeviationLayouts>
 
-	<!-- DebugDump path='debug'/-->
 	<!-- sample of configuration
 
 	<Clusters Default="MyCluster">
