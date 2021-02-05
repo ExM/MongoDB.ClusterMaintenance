@@ -6,7 +6,7 @@ using ShardEqualizer.Operations;
 
 namespace ShardEqualizer.Verbs
 {
-	[Verb("equalize", HelpText = "alignment size shards by moving bound of zones")]
+	[Verb("equalize", HelpText = "Alignment shard sizes by moving bound of zones.")]
 	public class EqualizeVerb: BaseCommandFileVerb
 	{
 		[Option("moveLimit", Required = false, Default = null, HelpText = "limit of moving data (Mb)")]

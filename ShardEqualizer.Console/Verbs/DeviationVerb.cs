@@ -9,7 +9,7 @@ using ShardEqualizer.Reporting;
 
 namespace ShardEqualizer.Verbs
 {
-	[Verb("deviation", HelpText = "Calculation of collection size deviation")]
+	[Verb("deviation", HelpText = "Calculation of collection size deviation.")]
 	public class DeviationVerb: BaseVerbose
 	{
 		[Option('s', "scale", Required = false, Default = "", HelpText = "scale of size (K,M,G,T,P,E)")]

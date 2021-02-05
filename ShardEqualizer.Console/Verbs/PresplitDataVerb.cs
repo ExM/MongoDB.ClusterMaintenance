@@ -6,7 +6,7 @@ using ShardEqualizer.Operations;
 
 namespace ShardEqualizer.Verbs
 {
-	[Verb("presplit", HelpText = "distribute data by zones with splitting existing chunks")]
+	[Verb("presplit", HelpText = "Distribute data by zones with splitting existing chunks.")]
 	public class PresplitDataVerb : BaseCommandFileVerb
 	{
 		[Option("renew", Required = false, Default = false, HelpText = "recreate unchanged zones")]

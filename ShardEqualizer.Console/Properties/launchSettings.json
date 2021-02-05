@@ -8,9 +8,9 @@
       "commandName": "Project",
       "commandLineArgs": "version"
     },
-    "findNewCollections": {
+    "config-update": {
       "commandName": "Project",
-      "commandLineArgs": "findNewCollections"
+      "commandLineArgs": "config-update"
     },
     "deviation": {
       "commandName": "Project",
